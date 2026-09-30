@@ -1,0 +1,136 @@
+{
+  "id": "vn-ai",
+  "version": "1.0.0",
+  "kind": "pack",
+  "name": "Viet Nam: Law on Artificial Intelligence",
+  "names": {
+    "en": "Viet Nam: Law on Artificial Intelligence",
+    "vi": "Việt Nam: Luật Trí tuệ nhân tạo"
+  },
+  "law": {
+    "en": "Law on Artificial Intelligence (Law No. 134/2025/QH15), in force from 1 March 2026; labelling of AI-generated content, with transition periods to 2027 for some sectors",
+    "vi": "Luật Trí tuệ nhân tạo (Luật số 134/2025/QH15), hiệu lực từ 01/03/2026; gắn nhãn nội dung do AI tạo ra, có thời gian chuyển tiếp đến 2027 cho một số lĩnh vực"
+  },
+  "summary": "Deceptive and manipulative uses of AI (deepfakes, impersonation, passing AI output off as human or official, exploiting vulnerable people), a check that the assistant never claims to be human when sincerely asked, and a transparency label for AI-generated answers.",
+  "disclaimer": "Technical guidance, not legal advice. Check every mapping against the law and its implementing documents in force, and have your legal team approve the pack before going live.",
+  "categories": {
+    "vai": {
+      "name": "Deceptive or manipulative use of AI",
+      "description": "Using AI to deceive or manipulate: creating deepfake images, audio or video of a real person or organization without consent, or content impersonating them to mislead; passing AI-generated content off as human-made or as an official document in order to deceive; content designed to manipulate people's behaviour against their own interests, especially children, the elderly or other vulnerable people; or a reply that claims to be a human when sincerely asked whether it is an AI. It is not explaining how AI works, clearly labelled fiction or satire that does not target real leaders, or ordinary writing help.",
+      "refs": [
+        "Luật Trí tuệ nhân tạo (Luật số 134/2025/QH15)",
+        "Luật An ninh mạng 2025 (Luật số 116/2025/QH15)"
+      ],
+      "surfaces": [
+        "ingest",
+        "query",
+        "context",
+        "answer"
+      ],
+      "weight": 0.8,
+      "base_severity": 3,
+      "sentinel": false,
+      "thresholds": {
+        "default": {
+          "block": 0.55,
+          "review": 0.3,
+          "flag": 0.15
+        }
+      },
+      "names": {
+        "en": "Deceptive or manipulative use of AI",
+        "vi": "Dùng AI để giả mạo, lừa dối"
+      }
+    },
+    "vam": {
+      "name": "AI manipulation and exploitation of vulnerable people",
+      "names": {
+        "en": "AI manipulation and exploitation of vulnerable people",
+        "vi": "Dùng AI thao túng, lợi dụng người yếu thế"
+      },
+      "description": "Using AI to manipulate people's perception or decisions in ways they cannot recognise, against their own interests: exploiting the vulnerabilities of children, the elderly, people with disabilities or people in financial or emotional distress; covertly profiling or scoring people to treat them unfairly; or collecting or inferring personal data to target them without a lawful basis. It is not ordinary marketing, personalisation the person has agreed to, or research and reporting on these practices.",
+      "refs": [
+        "Luật Trí tuệ nhân tạo (Luật số 134/2025/QH15)"
+      ],
+      "surfaces": [
+        "ingest",
+        "query",
+        "context",
+        "answer"
+      ],
+      "weight": 0.75,
+      "base_severity": 3,
+      "sentinel": false,
+      "thresholds": {
+        "default": {
+          "block": 0.6,
+          "review": 0.32,
+          "flag": 0.16
+        }
+      }
+    }
+  },
+  "signals": {
+    "asks_if_ai": {
+      "type": "noul",
+      "surfaces": [
+        "query"
+      ],
+      "instructions": "The user sincerely asks whether they are talking to a human or to an AI, a bot or an automated system."
+    },
+    "claims_human": {
+      "type": "noul",
+      "surfaces": [
+        "answer"
+      ],
+      "instructions": "The answer claims or implies that it was written by a human person rather than by an AI system, for example by saying 'I am a real person' or describing a human body, life or feelings as its own."
+    }
+  },
+  "rules": [
+    {
+      "id": "reference-material-softens",
+      "except_categories+": [
+        "vai"
+      ]
+    },
+    {
+      "id": "answer-claims-to-be-human",
+      "when": {
+        "signal": "claims_human",
+        "op": ">=",
+        "value": 0.7
+      },
+      "then": {
+        "floor_action": "review",
+        "add_finding": "vai",
+        "hold": true
+      },
+      "why": "An AI system must not present itself as a human. The answer is held, not blocked, so a reviewer can tell a role-played character from a real deception."
+    }
+  ],
+  "responses": {
+    "groups": {
+      "ai_law": {
+        "priority": 50,
+        "categories": [
+          "vai",
+          "vam"
+        ],
+        "text": {
+          "vi": "Mình không thể thực hiện yêu cầu này vì nó dùng trí tuệ nhân tạo để giả mạo, lừa dối hoặc thao túng người khác, trái với Luật Trí tuệ nhân tạo. Mình là một hệ thống AI và luôn minh bạch về điều đó. Mình có thể giúp bạn với nội dung được ghi rõ là do AI tạo ra.",
+          "en": "I can't do this because it uses artificial intelligence to impersonate, deceive or manipulate people, which the Law on Artificial Intelligence prohibits. I am an AI system and I'm always open about that. I can help with content that is clearly labelled as AI-generated.",
+          "zh": "我无法执行此请求，因为它利用人工智能进行冒充、欺骗或操纵他人，违反了《人工智能法》。我是一个人工智能系统，并始终对此保持透明。我可以协助你制作明确标注为人工智能生成的内容。",
+          "ja": "この依頼は、人工知能を使って他者になりすましたり、欺いたり、操作したりするものであり、ベトナムの人工知能法に反するため対応できません。私はAIシステムであり、そのことを常に明示しています。"
+        }
+      }
+    },
+    "transparency": {
+      "label": {
+        "vi": "Nội dung này do hệ thống trí tuệ nhân tạo tạo ra.",
+        "en": "This content was generated by an artificial intelligence system.",
+        "zh": "本内容由人工智能系统生成。",
+        "ja": "このコンテンツは人工知能システムによって生成されました。"
+      }
+    }
+  }
+}

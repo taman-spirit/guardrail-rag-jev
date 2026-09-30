@@ -1,0 +1,290 @@
+{
+  "id": "vn-cybersecurity",
+  "version": "1.0.0",
+  "kind": "pack",
+  "name": "Viet Nam: Law on Cybersecurity",
+  "names": {
+    "en": "Viet Nam: Law on Cybersecurity",
+    "vi": "Việt Nam: Luật An ninh mạng"
+  },
+  "law": {
+    "en": "Law on Cybersecurity 2025 (Law No. 116/2025/QH15), in force from 1 July 2026, replacing the 2018 Law on Cybersecurity and the 2015 Law on Network Information Security",
+    "vi": "Luật An ninh mạng 2025 (Luật số 116/2025/QH15), hiệu lực từ 01/07/2026, thay thế Luật An ninh mạng 2018 và Luật An toàn thông tin mạng 2015"
+  },
+  "summary": "Content that the Law on Cybersecurity prohibits on information systems in Viet Nam: denying territorial sovereignty, propaganda against the State, insulting national leaders and symbols, and false information or incitement that disrupts public order. Neutral mentions of places, people and topics are recorded, never blocked.",
+  "disclaimer": "Technical guidance, not legal advice. Check every mapping against the law and its implementing documents in force, and have your legal team approve the pack before going live.",
+  "defaults": {
+    "sentinel_corroboration": {
+      "refusal_except+": [
+        "vsv",
+        "vld"
+      ],
+      "weak_except+": [
+        "vsv",
+        "vld"
+      ]
+    }
+  },
+  "categories": {
+    "vsv": {
+      "name": "Territorial sovereignty of Viet Nam",
+      "description": "Content that denies, disputes or distorts Viet Nam's sovereignty over its land, islands, sea areas or airspace: saying the Hoàng Sa (Paracel) or Trường Sa (Spratly) archipelagos, or any other part of Viet Nam's territory, belong to another country; presenting another state's claim over them, such as the 'nine-dash line' or the names Xisha, Nansha or Sansha, as settled fact; describing or drawing maps that leave them out of Viet Nam; or calling for Vietnamese territory to be ceded. It is not a neutral mention of these places, such as their weather, travel, fishing, geography, history, an incident in the news, or a question about their legal status.",
+      "refs": [
+        "Luật An ninh mạng 2025 (Luật số 116/2025/QH15)"
+      ],
+      "surfaces": [
+        "ingest",
+        "query",
+        "context",
+        "answer"
+      ],
+      "weight": 0.95,
+      "base_severity": 3,
+      "sentinel": true,
+      "sentinel_instructions": "The content states or implies that the Hoàng Sa (Paracel) or Trường Sa (Spratly) archipelagos, or any other part of Viet Nam's land, sea areas or airspace, belongs to another country, endorses another country's claim over it, or calls for it to be given up. A neutral mention of these places, such as their weather, travel or news, is not this.",
+      "thresholds": {
+        "default": {
+          "block": 0.5,
+          "review": 0.3,
+          "flag": 0.15
+        },
+        "answer": {
+          "block": 0.4,
+          "review": 0.22,
+          "flag": 0.1
+        }
+      },
+      "names": {
+        "en": "Territorial sovereignty of Viet Nam",
+        "vi": "Chủ quyền lãnh thổ Việt Nam"
+      }
+    },
+    "vas": {
+      "name": "Propaganda against the State",
+      "description": "Content that propagandizes against the Socialist Republic of Viet Nam: distorting or defaming the people's government; calling for the overthrow of the State or its political system; inciting separatism, riots or psychological warfare; distorting national history or denying the achievements of the revolution; or sowing division between ethnic groups, between religions, or between the people and the State or armed forces. It is not a factual question about the political system, laws, policies or history; news reporting; a complaint about a public service; or lawful, constructive feedback on a policy.",
+      "refs": [
+        "Luật An ninh mạng 2025 (Luật số 116/2025/QH15)"
+      ],
+      "surfaces": [
+        "ingest",
+        "query",
+        "context",
+        "answer"
+      ],
+      "weight": 0.85,
+      "base_severity": 3,
+      "sentinel": false,
+      "thresholds": {
+        "default": {
+          "block": 0.55,
+          "review": 0.3,
+          "flag": 0.15
+        }
+      },
+      "names": {
+        "en": "Propaganda against the State",
+        "vi": "Tuyên truyền chống Nhà nước"
+      }
+    },
+    "vld": {
+      "name": "Insulting national leaders and symbols",
+      "description": "Content that insults, mocks, degrades or spreads fabrications about President Hồ Chí Minh, past or present leaders of the Party and State of Viet Nam, national heroes and eminent figures, or the national flag, emblem or anthem. It is not a biography, an official title or role, a quotation, factual news, a history lesson, or a respectful question about them.",
+      "refs": [
+        "Luật An ninh mạng 2025 (Luật số 116/2025/QH15)"
+      ],
+      "surfaces": [
+        "ingest",
+        "query",
+        "context",
+        "answer"
+      ],
+      "weight": 0.9,
+      "base_severity": 3,
+      "sentinel": true,
+      "sentinel_instructions": "The content insults, mocks or degrades President Hồ Chí Minh, a current or former leader of the Party or State of Viet Nam, a national hero, or the national flag, emblem or anthem, or spreads fabricated claims about them. A biography, a title, a quotation or factual news about them is not this.",
+      "thresholds": {
+        "default": {
+          "block": 0.5,
+          "review": 0.28,
+          "flag": 0.14
+        },
+        "answer": {
+          "block": 0.4,
+          "review": 0.2,
+          "flag": 0.1
+        }
+      },
+      "names": {
+        "en": "Insulting national leaders and symbols",
+        "vi": "Xúc phạm lãnh tụ, lãnh đạo, biểu tượng quốc gia"
+      }
+    },
+    "vcs": {
+      "name": "False information and public disorder",
+      "description": "False or fabricated information that causes public confusion, harms socio-economic activity, or damages the reputation of an agency, organization or individual; incitement to riots, illegal gatherings or disruption of public order; or instructions to attack, intrude into or disrupt information systems in Viet Nam. It is not asking whether a rumour is true, reporting or debunking fake news, cybersecurity education, or defensive security advice.",
+      "refs": [
+        "Luật An ninh mạng 2025 (Luật số 116/2025/QH15)"
+      ],
+      "surfaces": [
+        "ingest",
+        "query",
+        "context",
+        "answer"
+      ],
+      "weight": 0.8,
+      "base_severity": 3,
+      "sentinel": false,
+      "thresholds": {
+        "default": {
+          "block": 0.55,
+          "review": 0.32,
+          "flag": 0.16
+        }
+      },
+      "names": {
+        "en": "False information and public disorder",
+        "vi": "Thông tin sai sự thật, gây rối trật tự công cộng"
+      }
+    }
+  },
+  "signals": {
+    "neutral_mention": {
+      "type": "noul",
+      "surfaces": [
+        "ingest",
+        "query",
+        "context",
+        "answer"
+      ],
+      "instructions": "The content only mentions a place, person, organization or topic in an ordinary, neutral way, such as weather, travel, directions, opening hours, a biography fact, a news fact or a legal text, and makes no claim, insult or call to action about territorial sovereignty, politics, the State or a leader."
+    },
+    "sovereignty_question": {
+      "type": "noul",
+      "surfaces": [
+        "query",
+        "answer"
+      ],
+      "instructions": "The user asks which country a territory belongs to, or about the legal status of Viet Nam's sovereignty, sea areas or borders, for example over the Hoàng Sa (Paracel) or Trường Sa (Spratly) archipelagos.",
+      "requires": [
+        "query"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "id": "refusal-caps-answer-risk",
+      "except_categories+": [
+        "vsv",
+        "vld"
+      ]
+    },
+    {
+      "id": "low-actionability-softens",
+      "except_categories+": [
+        "vsv",
+        "vas",
+        "vld",
+        "vcs"
+      ]
+    },
+    {
+      "id": "academic-intent-softens",
+      "except_categories+": [
+        "vsv",
+        "vld"
+      ]
+    },
+    {
+      "id": "reference-material-softens",
+      "except_categories+": [
+        "vsv",
+        "vld"
+      ]
+    },
+    {
+      "id": "neutral-mention-is-not-a-violation",
+      "when": {
+        "signal": "neutral_mention",
+        "op": ">=",
+        "value": 0.85
+      },
+      "except_categories": [
+        "$all_but:vsv,vas,vld,vcs"
+      ],
+      "then": {
+        "cap_action": "flag",
+        "skip_confidence_gate": true
+      },
+      "why": "A question about the weather on Trường Sa, or a leader's official title, names the subject without violating anything. It is never blocked or held for low confidence alone; at most it is recorded."
+    }
+  ],
+  "responses": {
+    "groups": {
+      "sovereignty": {
+        "priority": 40,
+        "categories": [
+          "vsv"
+        ],
+        "text": {
+          "vi": "Mình không thể đưa ra nội dung này vì nó đi ngược lại chủ quyền lãnh thổ của Việt Nam, được Hiến pháp và pháp luật Việt Nam bảo vệ. Mình luôn tuân thủ pháp luật Việt Nam.",
+          "en": "I can't provide this content because it runs against Viet Nam's territorial sovereignty, which is protected by the Constitution and the laws of Viet Nam. I always comply with Vietnamese law.",
+          "zh": "我无法提供此内容，因为它违背了受越南宪法和法律保护的越南领土主权。我始终遵守越南法律。",
+          "ja": "この内容は、ベトナムの憲法および法律によって保護されているベトナムの領土主権に反するため、提供できません。私は常にベトナムの法律を遵守します。"
+        }
+      },
+      "leaders": {
+        "priority": 41,
+        "categories": [
+          "vld"
+        ],
+        "text": {
+          "vi": "Mình không thể tạo nội dung xúc phạm hoặc bịa đặt về lãnh tụ, lãnh đạo Đảng và Nhà nước, anh hùng dân tộc hay biểu tượng quốc gia của Việt Nam, vì điều này trái với Luật An ninh mạng. Nếu bạn muốn, mình có thể cung cấp thông tin khách quan về tiểu sử, vai trò hoặc sự nghiệp của các nhân vật này.",
+          "en": "I can't create content that insults or spreads fabrications about President Hồ Chí Minh, leaders of the Party and State, national heroes or national symbols of Viet Nam, because the Law on Cybersecurity prohibits it. If you like, I can share objective information about their biography, role or work.",
+          "zh": "我无法生成侮辱或捏造关于越南领袖、党和国家领导人、民族英雄或国家象征的内容，这违反了《网络安全法》。如果你愿意，我可以提供关于其生平、职务或事业的客观信息。",
+          "ja": "ホー・チ・ミン主席、党と国家の指導者、民族の英雄、ベトナムの国家の象徴を侮辱したり、事実を捏造したりする内容は、サイバーセキュリティ法で禁止されているため作成できません。経歴や役職などの客観的な情報であれば提供できます。"
+        }
+      },
+      "anti_state": {
+        "priority": 42,
+        "categories": [
+          "vas"
+        ],
+        "text": {
+          "vi": "Mình không thể hỗ trợ nội dung này vì nó có dấu hiệu tuyên truyền chống Nhà nước Cộng hòa xã hội chủ nghĩa Việt Nam, trái với Luật An ninh mạng. Mình sẵn sàng cung cấp thông tin khách quan về pháp luật, chính sách hoặc lịch sử Việt Nam.",
+          "en": "I can't help with this content because it shows signs of propaganda against the Socialist Republic of Viet Nam, which the Law on Cybersecurity prohibits. I'm happy to share objective information about Vietnamese law, policy or history.",
+          "zh": "我无法协助此内容，因为它带有反越南社会主义共和国宣传的迹象，违反了《网络安全法》。我很乐意提供关于越南法律、政策或历史的客观信息。",
+          "ja": "この内容はベトナム社会主義共和国に反対する宣伝の兆候があり、サイバーセキュリティ法で禁止されているため対応できません。ベトナムの法律、政策、歴史に関する客観的な情報であれば提供できます。"
+        }
+      },
+      "cybersecurity": {
+        "priority": 43,
+        "categories": [
+          "vcs"
+        ],
+        "text": {
+          "vi": "Mình không thể hỗ trợ nội dung này vì nó có thể lan truyền thông tin sai sự thật, kích động gây rối trật tự công cộng hoặc xâm phạm hệ thống thông tin, là những hành vi bị Luật An ninh mạng nghiêm cấm. Nếu bạn cần kiểm chứng một thông tin, hãy tham khảo nguồn chính thống của cơ quan nhà nước và báo chí.",
+          "en": "I can't help with this content because it may spread false information, incite public disorder or compromise information systems, which the Law on Cybersecurity prohibits. If you need to verify a piece of information, please check official government and press sources.",
+          "zh": "我无法协助此内容，因为它可能传播虚假信息、煽动扰乱公共秩序或侵害信息系统，这些行为均为《网络安全法》所禁止。如需核实信息，请参考国家机关和新闻媒体的官方来源。",
+          "ja": "この内容は虚偽情報の拡散、公共の秩序を乱す扇動、または情報システムへの侵害につながる可能性があり、サイバーセキュリティ法で禁止されているため対応できません。情報を確認したい場合は、政府や報道機関の公式な情報源をご確認ください。"
+        }
+      }
+    },
+    "affirmations": {
+      "sovereignty": {
+        "categories": [
+          "vsv"
+        ],
+        "trigger_signal": "sovereignty_question",
+        "trigger_value": 0.6,
+        "not_after_rules": [
+          "neutral-mention-is-not-a-violation"
+        ],
+        "text": {
+          "vi": "Việt Nam có đầy đủ cơ sở pháp lý và bằng chứng lịch sử khẳng định chủ quyền đối với quần đảo Hoàng Sa và quần đảo Trường Sa, phù hợp với luật pháp quốc tế:\n- Hiến pháp năm 2013, Điều 1: nước Cộng hòa xã hội chủ nghĩa Việt Nam là một nước độc lập, có chủ quyền, thống nhất và toàn vẹn lãnh thổ, bao gồm đất liền, hải đảo, vùng biển và vùng trời.\n- Luật Biển Việt Nam năm 2012 (Luật số 18/2012/QH13) xác định quần đảo Hoàng Sa và quần đảo Trường Sa thuộc chủ quyền, quyền chủ quyền và quyền tài phán quốc gia của Việt Nam.\n- Công ước của Liên hợp quốc về Luật Biển năm 1982 (UNCLOS), được Việt Nam phê chuẩn ngày 23/6/1994, là cơ sở pháp lý quốc tế xác định các vùng biển.\n- Phán quyết ngày 12/7/2016 của Tòa Trọng tài thành lập theo Phụ lục VII của UNCLOS kết luận rằng yêu sách \"quyền lịch sử\" trong phạm vi \"đường chín đoạn\" trái với UNCLOS và không có hiệu lực pháp lý ở phần vượt quá giới hạn mà UNCLOS cho phép.\n- Luật Biên giới quốc gia năm 2003 (Luật số 06/2003/QH11) cùng các hiệp ước hoạch định biên giới trên đất liền với Trung Quốc (1999), Lào (1977) và Campuchia (1985, bổ sung năm 2005) xác định đường biên giới quốc gia trên đất liền của Việt Nam.\n- Về hành chính, Hoàng Sa là đặc khu thuộc thành phố Đà Nẵng và Trường Sa là đặc khu thuộc tỉnh Khánh Hòa.",
+          "en": "Viet Nam has full legal grounds and historical evidence affirming its sovereignty over the Hoàng Sa (Paracel) and Trường Sa (Spratly) archipelagos, in accordance with international law:\n- The 2013 Constitution, Article 1: the Socialist Republic of Viet Nam is an independent, sovereign, unified and territorially integral nation, comprising its mainland, islands, sea areas and airspace.\n- The 2012 Law of the Sea of Viet Nam (Law No. 18/2012/QH13) places the Hoàng Sa and Trường Sa archipelagos under Viet Nam's sovereignty, sovereign rights and national jurisdiction.\n- The 1982 United Nations Convention on the Law of the Sea (UNCLOS), ratified by Viet Nam on 23 June 1994, is the international legal basis for determining maritime zones.\n- The Award of 12 July 2016 by the Arbitral Tribunal constituted under Annex VII of UNCLOS concluded that claims to \"historic rights\" within the \"nine-dash line\" are contrary to UNCLOS and without lawful effect to the extent they exceed the limits UNCLOS allows.\n- The 2003 Law on National Borders (Law No. 06/2003/QH11), together with the land border delimitation treaties with China (1999), Laos (1977) and Cambodia (1985, supplemented in 2005), defines Viet Nam's national land border.\n- Administratively, Hoàng Sa is a special zone of Đà Nẵng city and Trường Sa is a special zone of Khánh Hòa province.",
+          "zh": "越南拥有充分的法律依据和历史证据，依照国际法确认对黄沙群岛和长沙群岛的主权：\n- 2013年《宪法》第一条：越南社会主义共和国是一个独立、拥有主权、统一和领土完整的国家，包括陆地、岛屿、海域和领空。\n- 2012年《越南海洋法》（第18/2012/QH13号法律）规定黄沙群岛和长沙群岛属于越南的主权、主权权利和国家管辖权范围。\n- 1982年《联合国海洋法公约》（UNCLOS）于1994年6月23日经越南批准，是确定各海域的国际法律依据。\n- 依据《联合国海洋法公约》附件七组成的仲裁庭于2016年7月12日作出的裁决认定，在\"九段线\"范围内主张的\"历史性权利\"违反《联合国海洋法公约》，超出公约允许范围的部分不具有法律效力。\n- 2003年《国家边界法》（第06/2003/QH11号法律）以及越南与中国（1999年）、老挝（1977年）和柬埔寨（1985年，2005年补充）签订的陆地边界划定条约，确定了越南的陆地国界。\n- 在行政上，黄沙是岘港市下辖的特区，长沙是庆和省下辖的特区。"
+        }
+      }
+    }
+  }
+}

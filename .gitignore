@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Runtime data: audit logs, review queue, policy state
+data/
+*.db
+*.db-wal
+*.db-shm
+audit.jsonl
+
+# Local
+.env
+calibration/*.local.json
+.DS_Store

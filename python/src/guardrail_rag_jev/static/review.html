@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review Console</title>
+<style>
+:root { --bg:#f7f7f5; --panel:#fff; --ink:#1d1d1b; --muted:#6b6b66; --line:#e3e2dc; --accent:#1f5f8b;
+        --ok:#2e7d32; --warn:#b26a00; --bad:#b3261e; --chip:#eef2f5; }
+@media (prefers-color-scheme: dark) { :root { --bg:#161615; --panel:#1f1f1d; --ink:#ecebe6; --muted:#9d9c95;
+        --line:#34332f; --accent:#7fb3d9; --ok:#81c784; --warn:#ffb74d; --bad:#ef9a9a; --chip:#2a2e31; } }
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--ink); }
+header { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:12px 16px; border-bottom:1px solid var(--line); background:var(--panel); }
+header h1 { font-size:16px; margin:0 12px 0 0; }
+input, select, textarea, button { font:inherit; color:inherit; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+button { cursor:pointer; } button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+main { display:grid; grid-template-columns:minmax(260px,360px) 1fr; min-height:calc(100vh - 58px); }
+@media (max-width:760px) { main { grid-template-columns:1fr; } }
+#list { border-right:1px solid var(--line); overflow:auto; }
+.item { padding:10px 16px; border-bottom:1px solid var(--line); cursor:pointer; }
+.item:hover, .item.sel { background:var(--chip); }
+.meta { color:var(--muted); font-size:12px; }
+.chip { display:inline-block; padding:1px 8px; border-radius:999px; background:var(--chip); font-size:12px; margin:2px 4px 2px 0; }
+.block { color:var(--bad); } .review { color:var(--warn); } .flag { color:var(--muted); }
+#detail { padding:16px 20px; overflow:auto; }
+pre { white-space:pre-wrap; word-break:break-word; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; max-height:40vh; overflow:auto; }
+table { border-collapse:collapse; width:100%; } td, th { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+.actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+#status { margin-left:auto; color:var(--muted); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Review Console</h1>
+  <input id="key" type="password" placeholder="API key (reviewer)" size="24">
+  <select id="status-filter"><option value="pending">Chờ duyệt</option><option value="approved">Đã duyệt</option>
+    <option value="rejected">Đã từ chối</option><option value="edited">Đã sửa</option><option value="">Tất cả</option></select>
+  <select id="surface-filter"><option value="">Mọi điểm</option><option>ingest</option><option>query</option><option>context</option><option>answer</option></select>
+  <button id="reload">Tải lại</button>
+  <span id="status"></span>
+</header>
+<main>
+  <section id="list"></section>
+  <section id="detail"><p class="meta">Chọn một mục để xem chi tiết.</p></section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+try { $("#key").value = localStorage.getItem("grj-key") || ""; } catch (e) {}
+async function api(path, opts = {}) {
+  const key = $("#key").value.trim();
+  try { localStorage.setItem("grj-key", key); } catch (e) {}
+  const res = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", ...(key ? { Authorization: "Bearer " + key } : {}) } });
+  if (!res.ok) throw new Error(res.status + " " + (await res.text()));
+  return res.json();
+}
+async function load() {
+  try {
+    const q = new URLSearchParams({ status: $("#status-filter").value, surface: $("#surface-filter").value, limit: 200 });
+    const data = await api("/v1/reviews?" + q);
+    const verify = await api("/v1/audit/verify").catch(() => null);
+    $("#status").textContent = Object.entries(data.counts).map(([k, v]) => `${k}: ${v}`).join(" · ") +
+      (verify ? (verify.ok ? ` · audit OK (${verify.count})` : ` · AUDIT BROKEN at ${verify.broken_at}`) : "");
+    $("#list").innerHTML = data.items.map((it) => `
+      <div class="item" data-id="${esc(it.id)}">
+        <div><b>${esc(it.surface)}</b> · ${esc(it.decision)} <span class="meta">${esc(it.created_at.slice(0, 19).replace("T", " "))}</span></div>
+        <div>${(it.violations || []).map((v) => `<span class="chip ${esc(v.action)}">${esc(v.category)}</span>`).join("")}</div>
+        <div class="meta">${esc(JSON.stringify(it.ref))}</div>
+      </div>`).join("") || '<p class="meta" style="padding:16px">Không có mục nào.</p>';
+    document.querySelectorAll(".item").forEach((el) => el.onclick = () => show(el.dataset.id));
+  } catch (e) { $("#status").textContent = e.message; }
+}
+async function show(id) {
+  document.querySelectorAll(".item").forEach((el) => el.classList.toggle("sel", el.dataset.id === id));
+  const it = await api("/v1/reviews/" + id);
+  const rows = (it.violations || []).map((v) => `<tr>
+      <td><b>${esc(v.category)}</b><br>${esc(v.name)}</td><td class="${esc(v.action)}">${esc(v.action)}</td>
+      <td>${(v.probability ?? 0).toFixed(2)}</td><td>${esc(v.source)}</td>
+      <td>${(v.refs || []).map(esc).join("<br>")}</td>
+      <td>${(v.locations || []).map((l) => `${esc(l.kind)} ${l.start}-${l.end}${l.excerpt ? `<br><span class="meta">${esc(l.excerpt)}</span>` : ""}`).join("<hr>")}</td></tr>`).join("");
+  const pending = it.status === "pending";
+  $("#detail").innerHTML = `
+    <h2 style="margin-top:0">${esc(it.id)} <span class="chip">${esc(it.status)}</span></h2>
+    <p class="meta">${esc(it.surface)} · ${esc(it.reason)} · check ${esc(it.check_id)} · ${esc(it.tenant || "")}</p>
+    <h3>Vi phạm</h3>
+    <table><tr><th>Nhóm</th><th>Mức</th><th>Xác suất</th><th>Nguồn</th><th>Căn cứ</th><th>Vị trí</th></tr>${rows}</table>
+    <h3>Nội dung</h3><pre>${esc(it.content ?? "(đã xoá theo thời hạn lưu trữ)")}</pre>
+    ${it.final_content && it.status === "edited" ? `<h3>Nội dung sau khi sửa</h3><pre>${esc(it.final_content)}</pre>` : ""}
+    ${it.decided_by ? `<p class="meta">Quyết định bởi ${esc(it.decided_by)} lúc ${esc(it.decided_at)}: ${esc(it.note)}</p>` : ""}
+    ${pending ? `<textarea id="edit" rows="6" style="width:100%" placeholder="Sửa nội dung (cho quyết định Edit)">${esc(it.content ?? "")}</textarea>
+      <input id="note" placeholder="Ghi chú" style="width:100%;margin-top:8px">
+      <div class="actions">
+        <button class="primary" data-d="approve">Duyệt (Approve)</button>
+        <button data-d="edit">Sửa rồi duyệt (Edit)</button>
+        <button data-d="reject">Từ chối (Reject)</button>
+      </div>` : ""}`;
+  document.querySelectorAll("[data-d]").forEach((b) => b.onclick = async () => {
+    const body = { decision: b.dataset.d, note: $("#note").value };
+    if (b.dataset.d === "edit") body.content = $("#edit").value;
+    try { await api(`/v1/reviews/${id}/decision`, { method: "POST", body: JSON.stringify(body) }); await load(); show(id); }
+    catch (e) { alert(e.message); }
+  });
+}
+$("#reload").onclick = load; $("#status-filter").onchange = load; $("#surface-filter").onchange = load;
+load();
+</script>
+</body>
+</html>

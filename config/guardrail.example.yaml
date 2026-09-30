@@ -1,0 +1,153 @@
+# guardrail-rag-jev configuration. Every value shown is the default unless marked "example".
+# ${NAME} and ${NAME:-default} are read from the environment, so secrets stay out of this file.
+# Relative paths resolve against the directory of this file.
+
+# --- Judging model --------------------------------------------------------------------------
+# The provider that answers the policy's questions. Any name defined under `providers`.
+provider: jev
+
+providers:
+  jev:                                   # TypeSafe Jev: batched questions, calibrated probabilities
+    type: jev
+    api_key: ${JEV_API_KEY}
+    base_url: ${JEV_BASE_URL:-https://api.typesafe.ai}
+    model: ${JEV_MODEL:-jev-latest}
+    timeout: 5
+    max_retries: 2
+    residency: offshore
+
+  # example: OpenAI Decisions API on GPT-6 Luna. EXPERIMENTAL: the schema is not published yet, so
+  # the endpoint and field names are settings. Calibrate before letting it decide (see shadow).
+  # luna:
+  #   type: openai-decisions
+  #   api_key: ${OPENAI_API_KEY}
+  #   model: gpt-6-luna
+  #   path: /decisions
+  #   fields: {question: question, answers: answers, out_answer: answer, out_confidence: confidence}
+  #   calibration: ../calibration/luna.json      # a policy patch with this model's thresholds
+  #   residency: offshore
+
+  # example: a self-hosted judge through any OpenAI-compatible server (vLLM, Ollama, NIM, GreenNode)
+  # local:
+  #   type: llm-judge
+  #   base_url: http://vllm:8000/v1
+  #   model: Viet-Mistral/Vistral-7B-Chat
+  #   api_key: ""
+  #   max_questions: 24
+  #   calibration: ../calibration/vistral.json
+  #   residency: local
+
+  # example: Jev, and the local judge when Jev cannot be reached
+  # resilient:
+  #   type: fallback
+  #   chain: [jev, local]
+
+  # example: your own adapter (Llama Guard, Granite Guardian, SEA-Guard, ...)
+  # sea_guard:
+  #   type: plugin
+  #   class: my_company.guards:SeaGuardProvider
+  #   options: {url: http://sea-guard:8000}
+  #   residency: local
+
+# example: a different provider per checkpoint, e.g. keep ingest on your own machines
+# routing:
+#   ingest: local
+
+# example: run a second model on the same questions in the background and audit every disagreement.
+# shadow:
+#   provider: luna
+#   sample: 0.2
+
+# Which data-residency classes a provider may have. For personal data under Viet Nam's PDPL, sending
+# content to an offshore judge is a cross-border transfer; drop "offshore" to forbid it.
+residency:
+  allow: [offshore, vn_hosted, local]
+
+# --- Policy -----------------------------------------------------------------------------------
+policy:
+  base: standard-rag-v1
+  packs:                                 # bundled name or path -> on/off
+    vn-cybersecurity: true               # Luật An ninh mạng 2025 (116/2025/QH15)
+    vn-ai: true                          # Luật Trí tuệ nhân tạo (134/2025/QH15)
+    vn-personal-data: true               # Luật BVDLCN (91/2025/QH15), Nghị định 356/2025/NĐ-CP
+    # ./my-domain-pack.json: true        # example: your own pack
+  categories: {}                         # example: {spc: {enabled: false}, hte: {sensitivity: strict}}
+  rules: {}                              # example: {reference-material-softens: {enabled: false}}
+  defaults: {}                           # example: {multilabel: {surfaces: [ingest, context, answer, query]}}
+  locked: []                             # example: [vn-cybersecurity, cse] -- the runtime API cannot switch these off
+
+# --- What a verdict turns into, per checkpoint ------------------------------------------------
+# mode: enforce | shadow (record what would happen, pass everything)
+# review: hold (keep out until approved) | remove (drop now, still queue) | pass (use, queue for audit)
+enforcement:
+  ingest:
+    review: hold
+    queue_reviews: true
+    queue_blocks: true
+    locate: true                         # point at the paragraph that carries each violation
+    redact_always: true                  # mask detected identifiers before indexing, whatever else
+    quarantine_document_on: [ipi, mal, cse, iwp]
+  query:
+    review: hold
+  context:
+    review: remove
+    queue_blocks: true
+    reuse_ingest: true
+    min_relevance: null                  # example: 1.0 drops passages scored "unrelated"
+  answer:
+    review: hold
+    ai_label: true                       # append the AI transparency label from the vn-ai pack
+
+redaction:
+  template: "{label}"                    # example: "[{category}]"
+  fallback: review                       # masking asked but no span found: review | remove | pass
+  detectors:
+    enable: []                           # beyond the defaults and what packs list
+    disable: []                          # example: [vn_license_plate]
+    actions: {}                          # example: {email: flag}
+
+# example: the deployment's own exact rules
+# patterns:
+#   - {name: footer, kind: allow, regex: "^© ACME"}
+#   - {name: competitor-links, regex: "badcorp\\.example", category: mal, action: review, settle: true}
+
+locate: {max_segments: 16, min_chars: 30, max_chars: 1200}
+default_language: vi
+crisis_line: null                        # null uses the pack's default (115); set only a verified line
+cache: {enabled: true, capacity: 8192, ttl: 900}
+concurrency: 8
+timeout: null
+
+# --- Records ----------------------------------------------------------------------------------
+audit:
+  backend: jsonl                         # jsonl (one process) | sqlite (several workers)
+  path: ../data/audit.jsonl
+  store_content: redacted                # none | hash | redacted | full
+  webhook_url: null                      # example: http://siem-collector:8088/guardrail
+
+review:
+  path: ../data/review.db
+  store_content: full                    # full | redacted
+  webhook_url: null                      # receives review.decided and job.done, signed with the secret
+  webhook_secret: ${GUARDRAIL_WEBHOOK_SECRET:-}
+  retention_days: 90
+
+state_path: ../data/policy-state.json
+
+server:
+  api_keys:
+    - {key: "${GUARDRAIL_CLIENT_KEY:-}", role: client, name: rag-app}
+    - {key: "${GUARDRAIL_REVIEWER_KEY:-}", role: reviewer, name: reviewers}
+    - {key: "${GUARDRAIL_ADMIN_KEY:-}", role: admin, name: admin}
+  cors_origins: []
+  max_batch: 256
+
+# example: per-tenant or per-app settings, chosen with the X-Guardrail-Profile header or a bound key
+# profiles:
+#   bank:
+#     provider: local
+#     residency: {allow: [local]}
+#     policy: {locked: [vn-personal-data]}
+#     enforcement: {answer: {review: hold}}
+#   marketing:
+#     policy: {packs: {vn-ai: true}, categories: {spc: {enabled: false}}}

@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: pip install -e './python[dev,langchain,llamaindex]'
+      - name: Test
+        # No API key and no network: every test decides against scripted answers.
+        run: cd python && python -m pytest -q
+
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: cd clients/go && go vet ./... && go test ./...
+      - run: cd examples/go && go vet ./...
+
+  end-to-end:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: pip install -e './python[server]'
+      - name: Service, then the Go and Python examples against it
+        run: |
+          mkdir -p /tmp/run && cd /tmp/run
+          guardrail-rag-jev serve --offline --port 8080 &
+          for i in $(seq 1 50); do curl -sf localhost:8080/healthz && break; sleep 0.2; done
+          cd "$GITHUB_WORKSPACE/examples/go" && go run ./rag
+          cd "$GITHUB_WORKSPACE" && python examples/python/service_client.py
+          python examples/python/rag_pipeline.py
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t guardrail-rag-jev .

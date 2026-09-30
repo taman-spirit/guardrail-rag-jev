@@ -1,0 +1,33 @@
+# docker compose up            the service with Jev (set JEV_API_KEY and the GUARDRAIL_*_KEY variables)
+# docker compose --profile local up   also a local judge on vLLM, for deployments that keep data in-house
+services:
+  guardrail:
+    build: .
+    ports: ["8080:8080"]
+    environment:
+      JEV_API_KEY: ${JEV_API_KEY:-}
+      GUARDRAIL_CLIENT_KEY: ${GUARDRAIL_CLIENT_KEY:-}
+      GUARDRAIL_REVIEWER_KEY: ${GUARDRAIL_REVIEWER_KEY:-}
+      GUARDRAIL_ADMIN_KEY: ${GUARDRAIL_ADMIN_KEY:-}
+      GUARDRAIL_WEBHOOK_SECRET: ${GUARDRAIL_WEBHOOK_SECRET:-}
+    volumes:
+      - guardrail-data:/data
+      - ./deploy/guardrail.docker.yaml:/config/guardrail.yaml:ro
+    restart: unless-stopped
+
+  # A self-hosted judge behind the OpenAI-compatible API. Point a provider of type llm-judge at
+  # http://vllm:8000/v1 and set residency.allow: [local] to keep every check on your machines.
+  vllm:
+    profiles: ["local"]
+    image: vllm/vllm-openai:latest
+    command: ["--model", "${LOCAL_JUDGE_MODEL:-Viet-Mistral/Vistral-7B-Chat}", "--max-model-len", "8192"]
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+
+volumes:
+  guardrail-data:
+  hf-cache:

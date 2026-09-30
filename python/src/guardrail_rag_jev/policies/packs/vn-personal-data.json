@@ -1,0 +1,158 @@
+{
+  "id": "vn-personal-data",
+  "version": "1.0.0",
+  "kind": "pack",
+  "name": "Viet Nam: Personal Data Protection",
+  "names": {
+    "en": "Viet Nam: Personal Data Protection",
+    "vi": "Việt Nam: Bảo vệ dữ liệu cá nhân"
+  },
+  "law": {
+    "en": "Law on Personal Data Protection (Law No. 91/2025/QH15), in force from 1 January 2026, and Decree 356/2025/ND-CP, which replaces Decree 13/2023/ND-CP",
+    "vi": "Luật Bảo vệ dữ liệu cá nhân (Luật số 91/2025/QH15), hiệu lực từ 01/01/2026, và Nghị định 356/2025/NĐ-CP thay thế Nghị định 13/2023/NĐ-CP"
+  },
+  "summary": "Personal data of natural persons under Vietnamese law: basic personal data (citizen ID, phone, address, email, bank account) is masked; sensitive personal data (health, biometrics, genetics, sex life, political or religious views, criminal records, financial data, precise location, children's data) is held for review. Published contact details of organizations are not personal data.",
+  "disclaimer": "Technical guidance, not legal advice. Check every mapping against the law and its implementing documents in force, and have your legal team approve the pack before going live.",
+  "detectors": [
+    "vn_cccd",
+    "vn_phone",
+    "vn_bank_account",
+    "vn_passport",
+    "vn_social_insurance",
+    "vn_license_plate"
+  ],
+  "defaults": {
+    "sentinel_corroboration": {
+      "refusal_except+": [
+        "vsd"
+      ],
+      "weak_except+": []
+    }
+  },
+  "categories": {
+    "prv": {
+      "refs+": [
+        "Luật Bảo vệ dữ liệu cá nhân (Luật số 91/2025/QH15)",
+        "Nghị định 356/2025/NĐ-CP"
+      ],
+      "description": "Personal data of an identifiable natural person, meaning a private individual: identifiers such as a citizen ID (CCCD) number, personal phone numbers, home addresses, personal email, bank accounts, health or location data, or requests to find, profile, dox or track a specific person. It covers individuals only. It is not the published contact details of an organization, business, brand, agency or public office, such as a hotline, customer-service or support number, support email, office address, website or tax code.",
+      "sentinel_instructions": "The content contains personal data of an identifiable private individual, or asks to find, infer, expose or track a specific person. The public contact details of a company, brand, agency or public office, such as a hotline, customer-service number or support email, are not personal data."
+    },
+    "vsd": {
+      "name": "Sensitive personal data",
+      "names": {
+        "en": "Sensitive personal data",
+        "vi": "Dữ liệu cá nhân nhạy cảm"
+      },
+      "description": "Sensitive personal data of an identifiable natural person: health or medical records, genetic or biometric data, sex life or sexual orientation, political or religious views, ethnic or racial origin, criminal records, bank accounts, credit or other financial data, precise location or movement history, or personal data of a child, linked to a named or otherwise identifiable person. It is not aggregate or anonymised statistics, a general medical or legal explanation, or a person's own question about their own situation.",
+      "refs": [
+        "Luật Bảo vệ dữ liệu cá nhân (Luật số 91/2025/QH15)",
+        "Nghị định 356/2025/NĐ-CP"
+      ],
+      "surfaces": [
+        "ingest",
+        "query",
+        "context",
+        "answer"
+      ],
+      "weight": 0.85,
+      "base_severity": 3,
+      "sentinel": true,
+      "sentinel_instructions": "The content links sensitive data to an identifiable person: health or medical records, genetic or biometric data, sex life or sexual orientation, political or religious views, ethnic origin, criminal records, bank accounts or financial data, precise location, or a child's personal data. Anonymised statistics or general explanations are not this.",
+      "thresholds": {
+        "default": {
+          "block": 0.75,
+          "review": 0.3,
+          "flag": 0.15
+        },
+        "answer": {
+          "block": 0.6,
+          "review": 0.22,
+          "flag": 0.1
+        }
+      },
+      "route": "redact"
+    }
+  },
+  "signals": {
+    "data_subject": {
+      "type": "choice",
+      "surfaces": [
+        "ingest",
+        "query",
+        "context",
+        "answer"
+      ],
+      "instructions": "Whose personal or contact data does the content ask for or disclose?",
+      "criteria": {
+        "none": "No personal or contact data is involved.",
+        "organization": "A company, brand, agency, public office or other organization, including its hotline, customer-service or support contacts, office address or website.",
+        "individual": "A private natural person."
+      }
+    }
+  },
+  "rules": [
+    {
+      "id": "refusal-caps-answer-risk",
+      "except_categories+": [
+        "vsd"
+      ]
+    },
+    {
+      "id": "low-actionability-softens",
+      "except_categories+": [
+        "vsd"
+      ]
+    },
+    {
+      "id": "reference-material-softens",
+      "except_categories+": [
+        "vsd"
+      ]
+    },
+    {
+      "id": "organization-contact-is-public",
+      "when": {
+        "signal": "data_subject",
+        "op": "==",
+        "value": "organization"
+      },
+      "except_categories": [
+        "$all_but:prv"
+      ],
+      "then": {
+        "cap_action": "allow",
+        "skip_confidence_gate": true
+      },
+      "why": "Personal data protection covers natural persons. A hotline or a customer-service number is published so that people use it, so it is neither held nor masked."
+    }
+  ],
+  "responses": {
+    "groups": {
+      "personal_data": {
+        "priority": 60,
+        "categories": [
+          "prv"
+        ],
+        "text": {
+          "vi": "Mình không thể cung cấp hay thu thập thông tin cá nhân của một người cụ thể khi chưa có sự đồng ý của họ. Nếu bạn cần liên hệ với một doanh nghiệp hay cơ quan, mình có thể giúp tìm kênh liên hệ chính thức của họ.",
+          "en": "I can't share or collect personal information about a specific person without their consent. If you need to reach a business or an agency, I can help you find its official contact channels.",
+          "zh": "未经本人同意，我无法提供或收集特定个人的个人信息。如果你需要联系某家企业或机构，我可以帮你查找其官方联系渠道。",
+          "ja": "本人の同意なく、特定の個人の個人情報を提供・収集することはできません。企業や機関に連絡したい場合は、公式の連絡先を探すお手伝いができます。"
+        }
+      },
+      "sensitive_data": {
+        "priority": 59,
+        "categories": [
+          "vsd"
+        ],
+        "text": {
+          "vi": "Mình không thể cung cấp dữ liệu cá nhân nhạy cảm của một người cụ thể, như thông tin sức khỏe, sinh trắc học, tài chính, tiền án hay vị trí, vì dữ liệu này được pháp luật Việt Nam bảo vệ đặc biệt.",
+          "en": "I can't share sensitive personal data about a specific person, such as health, biometric, financial, criminal record or location data, because Vietnamese law gives this data special protection.",
+          "zh": "我无法提供特定个人的敏感个人数据，例如健康、生物识别、财务、犯罪记录或位置数据，因为越南法律对此类数据给予特别保护。",
+          "ja": "健康、生体認証、金融、犯罪歴、位置情報など、特定の個人の機微な個人データは、ベトナムの法律で特別に保護されているため提供できません。"
+        }
+      }
+    }
+  }
+}

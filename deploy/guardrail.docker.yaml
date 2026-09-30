@@ -1,0 +1,33 @@
+# The container's config. See config/guardrail.example.yaml for every setting.
+provider: jev
+providers:
+  jev:
+    type: jev
+    api_key: ${JEV_API_KEY}
+    base_url: ${JEV_BASE_URL:-https://api.typesafe.ai}
+    model: ${JEV_MODEL:-jev-latest}
+    timeout: 5
+  # local:
+  #   type: llm-judge
+  #   base_url: http://vllm:8000/v1
+  #   model: Viet-Mistral/Vistral-7B-Chat
+  #   api_key: ""
+  #   residency: local
+
+policy:
+  packs: {vn-cybersecurity: true, vn-ai: true, vn-personal-data: true}
+
+audit:
+  backend: sqlite          # safe with several workers
+  path: /data/audit.db
+  store_content: redacted
+review:
+  path: /data/review.db
+  webhook_secret: ${GUARDRAIL_WEBHOOK_SECRET:-}
+state_path: /data/policy-state.json
+
+server:
+  api_keys:
+    - {key: "${GUARDRAIL_CLIENT_KEY:-}", role: client, name: rag-app}
+    - {key: "${GUARDRAIL_REVIEWER_KEY:-}", role: reviewer, name: reviewers}
+    - {key: "${GUARDRAIL_ADMIN_KEY:-}", role: admin, name: admin}

@@ -1,0 +1,18 @@
+guardrail-rag-jev
+
+Derived from guardrail-chatbot-jev (https://github.com/taman-spirit/guardrail-chatbot-jev) by the
+same author: the decision engine, the hazard taxonomy and the Viet Nam compliance texts were adapted
+from it for retrieval-augmented generation.
+
+Third-party references
+----------------------
+
+The hazard taxonomy cites MLCommons AILuminate, Meta Llama Guard and the OWASP Top 10 for LLM
+Applications 2025. The Viet Nam packs cite the Law on Cybersecurity 2025 (Law No. 116/2025/QH15),
+the Law on Artificial Intelligence (Law No. 134/2025/QH15), the Law on Personal Data Protection
+(Law No. 91/2025/QH15) and Decree 356/2025/ND-CP. They are cited as sources; this software is not
+legal advice.
+
+TypeSafe Jev and the OpenAI Decisions API are third-party services with their own terms.
+
+This notice is informational. The licence for this software is CC BY-NC 4.0; see LICENSE.
