@@ -81,6 +81,30 @@ class ReviewStore:
             """
         )
 
+    def _q(self, sql: str, args: tuple | list = (), *, fetch: str = "none") -> Any:
+        """Run one statement and read its result before letting go of the connection.
+
+        A file database gives every thread its own connection. The in-memory one (tests, embedding)
+        is a single connection shared across threads, so every use of it is serialised here: two
+        threads interleaving on one sqlite3 connection fail with "bad parameter or other API misuse".
+        """
+        shared = self.path == ":memory:"
+        if shared:
+            self._lock.acquire()
+        try:
+            cur = self._conn().execute(sql, args)
+            if fetch == "one":
+                row = cur.fetchone()
+                return _row(cur, row) if row else None
+            if fetch == "all":
+                return [_row(cur, r) for r in cur.fetchall()]
+            if fetch == "tuples":
+                return cur.fetchall()
+            return cur.rowcount
+        finally:
+            if shared:
+                self._lock.release()
+
     def _conn(self) -> sqlite3.Connection:
         if self.path == ":memory:":
             if self._shared is None:
@@ -115,16 +139,15 @@ class ReviewStore:
         the existing item's id is returned."""
         scope = scope_of(surface)
         with self._lock:
-            db = self._conn()
-            row = db.execute(
+            row = self._q(
                 "SELECT id FROM reviews WHERE scope=? AND content_hash=? AND status='pending' AND tenant=?",
-                (scope, content_hash, tenant),
-            ).fetchone()
+                (scope, content_hash, tenant), fetch="one",
+            )
             if row:
-                return str(row[0])
+                return str(row["id"])
             rid = "rv_" + uuid.uuid4().hex[:20]
             now = _now()
-            db.execute(
+            self._q(
                 "INSERT INTO reviews (id, created_at, updated_at, status, surface, scope, content_hash, content, language,"
                 " decision, reason, violations, verdict, ref, tenant, profile, check_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (rid, now, now, "pending", surface, scope, content_hash, content, language, decision, reason,
@@ -134,9 +157,7 @@ class ReviewStore:
             return rid
 
     def get(self, review_id: str) -> dict[str, Any] | None:
-        cur = self._conn().execute("SELECT * FROM reviews WHERE id=?", (review_id,))
-        row = cur.fetchone()
-        return _row(cur, row) if row else None
+        return self._q("SELECT * FROM reviews WHERE id=?", (review_id,), fetch="one")
 
     def list(self, *, status: str | None = "pending", surface: str | None = None, tenant: str | None = None,
              limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
@@ -147,12 +168,11 @@ class ReviewStore:
                 args.append(val)
         sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
         args += [limit, offset]
-        cur = self._conn().execute(sql, args)
-        return [_row(cur, r) for r in cur.fetchall()]
+        return self._q(sql, args, fetch="all")
 
     def counts(self, tenant: str | None = None) -> dict[str, int]:
         sql = "SELECT status, COUNT(*) FROM reviews" + (" WHERE tenant=?" if tenant else "") + " GROUP BY status"
-        return {s: n for s, n in self._conn().execute(sql, (tenant,) if tenant else ())}
+        return {s: n for s, n in self._q(sql, (tenant,) if tenant else (), fetch="tuples")}
 
     def decide(self, review_id: str, decision: str, *, reviewer: str, note: str = "", content: str | None = None) -> dict[str, Any]:
         """Settle an item and record the override."""
@@ -168,12 +188,11 @@ class ReviewStore:
                 raise ValueError(f"review {review_id} is already {item['status']}")
             now = _now()
             final = content if decision == "edit" else (item["content"] if decision == "approve" else None)
-            db = self._conn()
-            db.execute(
+            self._q(
                 "UPDATE reviews SET status=?, updated_at=?, decided_by=?, decided_at=?, note=?, final_content=? WHERE id=?",
                 (STATUS_OF[decision], now, reviewer, now, note, final, review_id),
             )
-            db.execute(
+            self._q(
                 "INSERT OR REPLACE INTO overrides (tenant, scope, content_hash, decision, replacement, review_id, created_at, created_by)"
                 " VALUES (?,?,?,?,?,?,?,?)",
                 (item["tenant"] or "", item["scope"], item["content_hash"], STATUS_OF[decision],
@@ -186,17 +205,16 @@ class ReviewStore:
     # -- overrides -------------------------------------------------------
 
     def override(self, surface: str, content_hash: str, tenant: str = "") -> Override | None:
-        row = self._conn().execute(
+        row = self._q(
             "SELECT decision, replacement, review_id FROM overrides WHERE tenant=? AND scope=? AND content_hash=?",
-            (tenant or "", scope_of(surface), content_hash),
-        ).fetchone()
-        return Override(row[0], row[1], row[2]) if row else None
+            (tenant or "", scope_of(surface), content_hash), fetch="one",
+        )
+        return Override(row["decision"], row["replacement"], row["review_id"]) if row else None
 
     def clear_override(self, surface: str, content_hash: str, tenant: str = "") -> bool:
-        cur = self._conn().execute(
+        return self._q(
             "DELETE FROM overrides WHERE tenant=? AND scope=? AND content_hash=?", (tenant or "", scope_of(surface), content_hash)
-        )
-        return cur.rowcount > 0
+        ) > 0
 
     # -- retention -------------------------------------------------------
 
@@ -205,18 +223,17 @@ class ReviewStore:
         if days <= 0:
             return 0
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        cur = self._conn().execute(
+        return self._q(
             "UPDATE reviews SET content=NULL, final_content=NULL WHERE status!='pending' AND decided_at < ? AND content IS NOT NULL",
             (cutoff,),
         )
-        return cur.rowcount
 
     # -- jobs ------------------------------------------------------------
 
     def job_create(self, *, total: int, callback_url: str | None, tenant: str = "", profile: str = "") -> str:
         jid = "job_" + uuid.uuid4().hex[:20]
         now = _now()
-        self._conn().execute(
+        self._q(
             "INSERT INTO jobs (id, created_at, updated_at, status, total, done, callback_url, tenant, profile) VALUES (?,?,?,?,?,?,?,?,?)",
             (jid, now, now, "queued", total, 0, callback_url, tenant, profile),
         )
@@ -230,14 +247,12 @@ class ReviewStore:
             if key in fields and not isinstance(fields[key], str):
                 fields[key] = json.dumps(fields[key], ensure_ascii=False, default=str)
         cols = ", ".join(f"{k}=?" for k in fields)
-        self._conn().execute(f"UPDATE jobs SET {cols} WHERE id=?", (*fields.values(), job_id))
+        self._q(f"UPDATE jobs SET {cols} WHERE id=?", (*fields.values(), job_id))
 
     def job_get(self, job_id: str, *, with_results: bool = True) -> dict[str, Any] | None:
-        cur = self._conn().execute("SELECT * FROM jobs WHERE id=?", (job_id,))
-        row = cur.fetchone()
-        if not row:
+        job = self._q("SELECT * FROM jobs WHERE id=?", (job_id,), fetch="one")
+        if not job:
             return None
-        job = _row(cur, row)
         if not with_results:
             job.pop("results", None)
         return job

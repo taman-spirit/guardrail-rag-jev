@@ -79,7 +79,25 @@ def test_purge_drops_old_decided_text_but_keeps_the_record():
     s = ReviewStore(":memory:")
     rid = _item(s)
     s.decide(rid, "approve", reviewer="r")
-    s._conn().execute("UPDATE reviews SET decided_at='2000-01-01T00:00:00+00:00'")
+    s._q("UPDATE reviews SET decided_at='2000-01-01T00:00:00+00:00'")
     assert s.purge(30) == 1
     item = s.get(rid)
     assert item["content"] is None and item["status"] == "approved" and item["content_hash"] == "h-t"
+
+
+def test_the_in_memory_store_is_safe_across_threads():
+    """filter_context checks chunks in parallel; the shared in-memory connection must not interleave."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    s = ReviewStore(":memory:")
+
+    def work(i):
+        rid = _item(s, f"t{i}")
+        s.override("context", f"h-t{i}")
+        s.get(rid)
+        s.list(limit=5)
+        return rid
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        ids = list(pool.map(work, range(400)))
+    assert len(set(ids)) == 400 and s.counts() == {"pending": 400}
