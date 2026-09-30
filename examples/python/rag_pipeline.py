@@ -5,7 +5,7 @@
     python examples/python/rag_pipeline.py --config config/guardrail.example.yaml   # a real model
 
 The vector store and the LLM are stand-ins, so the example runs anywhere; replace ``Store`` and
-``generate`` with your own (pgvector, Qdrant, Milvus...; OpenAI, Claude, a local model...).
+``generate`` with your own (pgvector, Qdrant, Milvus...; a hosted or local LLM).
 """
 
 from __future__ import annotations

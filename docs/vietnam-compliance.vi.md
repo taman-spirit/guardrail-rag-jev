@@ -24,7 +24,7 @@ Anh, và vị trí trong văn bản khi xác định được.
 | `vld` Lãnh tụ, lãnh đạo, biểu tượng quốc gia | Xúc phạm, bịa đặt về lãnh tụ, lãnh đạo, anh hùng dân tộc, Quốc kỳ, Quốc huy, Quốc ca | Tiểu sử, chức danh, trích dẫn, tin tức |
 | `vcs` Thông tin sai sự thật, gây rối | Tin giả gây hoang mang, kích động gây rối, hướng dẫn tấn công hệ thống thông tin | Hỏi kiểm chứng tin đồn, bài đính chính, kiến thức phòng thủ |
 
-- **Nhắc đến một cách trung tính không phải vi phạm.** Rule `neutral-mention-is-not-a-violation` giới hạn kết quả ở mức ghi nhận (`flag`) và bỏ qua cổng confidence thấp.
+- **Nhắc đến trung tính không phải vi phạm.** Rule `neutral-mention-is-not-a-violation` giới hạn kết quả ở mức ghi nhận (`flag`) và bỏ qua cổng confidence thấp.
 - **Câu hỏi về chủ quyền được trả lời kèm đoạn khẳng định viết sẵn.** Ví dụ câu hỏi "Trường Sa thuộc nước nào?": câu trả lời được dùng, và kết thúc bằng đoạn khẳng định chủ quyền giữ nguyên từng ký tự như trong gói (`notices`). Model không tự viết đoạn này.
 - **Với tài liệu ingest,** rule `reference-material-softens` hạ một bậc cho tài liệu tham khảo (luật, tin tức, bài học thuật), nhưng **không** áp dụng cho `vsv` và `vld`. Một bài "bách khoa" ghi Hoàng Sa thuộc nước khác vẫn bị giữ lại.
 
