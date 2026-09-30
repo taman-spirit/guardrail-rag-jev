@@ -267,3 +267,24 @@ type PolicyChange struct {
 	Packs      map[string]bool           `json:"packs,omitempty"`
 	Categories map[string]map[string]any `json:"categories,omitempty"`
 }
+
+// StreamEvent is one step of a guarded streamed answer.
+//
+//	release  checked text the client may show now
+//	stop     a chunk failed: show Text (the prewritten reply) and stop the model
+//	retract  the complete answer failed after parts were shown: replace everything shown with Text
+//	notice   text to show after the answer
+//	done     the full check's Result
+type StreamEvent struct {
+	Type   string  `json:"type"`
+	Text   string  `json:"text"`
+	Result *Result `json:"result,omitempty"`
+}
+
+// AnswerStreamRequest opens a guarded stream.
+type AnswerStreamRequest struct {
+	Query      string  `json:"query,omitempty"`
+	Context    []Chunk `json:"context,omitempty"`
+	Language   string  `json:"language,omitempty"`
+	ChunkChars int     `json:"chunk_chars,omitempty"`
+}

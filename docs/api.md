@@ -16,7 +16,12 @@ A key bound to a tenant (`tenant:` in `server.api_keys`) records its checks unde
 sees only that tenant's reviews, jobs and audit records. Unbound keys may send
 `X-Guardrail-Tenant`. `X-Guardrail-Profile` (or `profile` in the body) selects a profile.
 
-With no keys configured the service is open. Use that for local development only.
+With `server.oidc` configured, the service also accepts an OpenID Connect access token (a JWT) from
+your identity provider. The token's signature, issuer, audience and expiry are checked; a claim maps
+to the role (`role_map`) and another to the tenant, which then binds the caller like a
+tenant-bound key.
+
+With no keys and no OIDC configured the service is open. Use that for local development only.
 
 ## The result object
 
@@ -83,7 +88,27 @@ A `Chunk` is `{"text", "id"?, "doc_id"?, "chunk_id"?, "source"?, "title"?, "trus
 A batch holds at most `server.max_batch` items (default 256); use a job for more. A job's callback
 receives `{"event": "job.done", "job_id", "summary", "results"}`, signed like review webhooks.
 
-`partial: true` on `/v1/answer` is for a streamed answer still being written. Only the
+### Streamed answers
+
+| Method and path | Body | Returns |
+| --- | --- | --- |
+| `POST /v1/answer/streams` | `{"query"?, "context"?, "language"?, "chunk_chars"?}` | `201 {"stream_id"}` |
+| `POST /v1/answer/streams/{id}/chunks` | `{"text"}`: newly generated text | `{"events": [Event]}` |
+| `POST /v1/answer/streams/{id}/finish` | | `{"events": [Event]}`, ending with `done` unless stopped |
+
+An event is `{"type", "text", "result"?}`:
+
+| Type | Meaning |
+| --- | --- |
+| `release` | checked text the client may show now (masked where needed) |
+| `stop` | a chunk failed its check: show `text` (the prewritten reply) and stop the model |
+| `retract` | the complete answer failed the full check after parts were shown: replace them all with `text` |
+| `notice` | a notice to show after the answer |
+| `done` | `result` is the full check's result |
+
+Sessions live in one instance's memory for 10 minutes: route a stream's requests to one instance.
+
+`partial: true` on `/v1/answer` is a lower-level alternative for a streamed answer still being written. Only the
 must-not-miss questions are asked and nothing is queued; check the complete answer at the end.
 
 ## Review
@@ -93,6 +118,11 @@ must-not-miss questions are asked and nothing is queued; check the complete answ
 | `GET /v1/reviews?status=pending&surface=&limit=&offset=` | | `{"items", "counts"}` |
 | `GET /v1/reviews/{id}` | | the item, with content (unless purged) and violations |
 | `POST /v1/reviews/{id}/decision` | `{"decision": "approve" \| "reject" \| "edit", "note"?, "content"?}` | `edit` needs `content`; a decided item returns `409` |
+
+An item may need two reviewers (`review.two_person`). Its `required_approvals` is then 2, and
+`approvals` lists who has approved so far. A first approval returns the item still `pending` and
+posts `review.approval`. A second approval by a different reviewer settles it. An edit restarts the
+count, and a reject settles at once.
 
 A decision becomes an override keyed by the content hash. Its scope is `document` (shared by ingest
 and context), `query` or `answer`. It is posted to `review.webhook_url` as
@@ -107,7 +137,7 @@ and context), `query` or `answer`. It is posted to `review.webhook_url` as
 | `GET /v1/audit/verify` | `{"ok", "count", "head"}` or `{"ok": false, "broken_at", "reason"}` |
 | `GET /v1/audit/head` | `{"seq", "hash"}`: keep a copy outside the service |
 
-Record types: `check`, `check.partial`, `document`, `review.decided`, `policy.changed`,
+Record types: `check`, `check.partial`, `document`, `review.approval`, `review.decided`, `policy.changed`,
 `shadow.compare`, `shadow.error`, `job.created`, `job.done`, `job.failed`.
 
 ## Policy

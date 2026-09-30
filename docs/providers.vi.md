@@ -31,7 +31,12 @@ Jev dùng đúng giao thức này. Với model khác, lớp `Normalizing` tự b
 | `openai-decisions` | OpenAI Decisions API (GPT-6 Luna) | không (tách song song) | một confidence | `offshore` | **thử nghiệm**: khi cần nhận ảnh; chạy shadow trước |
 | `llm-judge` | mọi model có API tương thích OpenAI | có (chia nhóm) | tự báo, chưa hiệu chỉnh | `local` nếu URL nội bộ | dữ liệu phải ở trong nước hoặc on-prem; làm fallback |
 | `fallback` | chuỗi provider | - | - | theo từng thành viên | Jev chính, judge nội bộ dự phòng |
-| `plugin` | class của bạn | tuỳ | tuỳ | khai báo | Llama Guard, Granite Guardian, SEA-Guard... |
+| `granite-guardian` | IBM Granite Guardian | không (từng tiêu chí) | logprob Yes/No | `local` nếu URL nội bộ | tiêu chí tuỳ biến, groundedness |
+| `sea-guard` | AI Singapore SEA-Guard | không (từng tiêu chí) | logprob Yes/No | `local` nếu URL nội bộ | classifier có tiếng Việt |
+| `classifier` | classifier có/không bất kỳ | không | logprob Yes/No | `local` nếu URL nội bộ | model an toàn khác |
+| `llama-guard` | Meta Llama Guard | có (một lần phân loại) | logprob unsafe | `local` nếu URL nội bộ | chỉ các nhóm S1-S14; dùng trong `routed` |
+| `routed` | nhiều provider | - | - | theo từng thành viên | chia câu hỏi theo tên |
+| `plugin` | class của bạn | tuỳ | tuỳ | khai báo | model chưa có adapter |
 | `offline` | heuristic từ khoá | - | - | `local` | demo, test. **Không dùng cho nội dung thật** |
 
 ### Jev (mặc định)
@@ -89,26 +94,59 @@ residency:
 
 `docker compose --profile local up` chạy thêm một vLLM cạnh service.
 
-### Plugin (Llama Guard, Granite Guardian, SEA-Guard...)
+### Classifier an toàn tự host (SEA-Guard, Granite Guardian, Llama Guard)
+
+Các classifier chạy sau vLLM hoặc một server có API tương thích OpenAI. SEA-Guard và Granite Guardian
+trả lời có/không cho từng tiêu chí, và xác suất lấy từ logprob. `Normalizing` tự tách câu hỏi
+chọn-một thành từng câu có/không cho mỗi nhãn:
+
+```yaml
+providers:
+  sea_guard: {type: sea-guard, base_url: http://sea-guard:8000/v1, model: aisingapore/Qwen-SEA-Guard-8B-2602, residency: local}
+  granite:   {type: granite-guardian, base_url: http://granite:8000/v1, model: ibm-granite/granite-guardian-4.1-8b, residency: local}
+```
+
+Mỗi nhóm là một request, nên một lần kiểm tra ingest cần vài chục request song song. Classifier nhỏ
+(8B) chạy trên GPU chịu được mức này, nhưng hãy đo độ trễ trước khi dùng cho `query`.
+
+Llama Guard chỉ biết taxonomy S1-S14. Hãy dùng nó trong `routed`, để các nhóm nó không biết (gói luật
+Việt Nam, injection, tín hiệu) được hỏi một judge khác:
+
+```yaml
+providers:
+  llama_guard: {type: llama-guard, base_url: http://llama-guard:8000/v1, model: meta-llama/Llama-Guard-4-12B, residency: local}
+  local: {type: llm-judge, base_url: http://vllm:8000/v1, model: Viet-Mistral/Vistral-7B-Chat, residency: local}
+  mixed:
+    type: routed
+    routes: [{match: ["s_*", "m_*", "l_*"], provider: llama_guard}]
+    default: local
+provider: mixed
+```
+
+Định dạng prompt theo model card đã công bố tại thời điểm viết. Hãy kiểm lại với phiên bản model bạn
+chạy, và hiệu chỉnh ngưỡng (xem bên dưới).
+
+### Plugin
+
+Với model chưa có adapter, hãy viết một class có `name`, `capabilities` và `decide()`. Khai báo đúng
+những gì model làm được natively; `Normalizing` lo phần còn lại:
 
 ```python
-from guardrail_rag_jev.providers import Capabilities, Response, Answers
+from guardrail_rag_jev.providers import Answers, Capabilities, Response
 
-class SeaGuardProvider:
-    name = "sea-guard"
-    # SEA-Guard chỉ trả safe/unsafe: khai báo đúng, Normalizing lo phần còn lại
-    capabilities = Capabilities(batch=False, label_probabilities=False, yes_no=False, score=False)
+class MyGuard:
+    name = "my-guard"
+    capabilities = Capabilities(batch=False, choice=False, yes_no=True, score=False)
 
-    def __init__(self, url: str): ...
     def decide(self, state, questions, *, timeout=None) -> Response:
-        (name, q), = questions.items()
-        label = ...  # gọi model, ánh xạ về một nhãn trong q["criteria"]
-        return Response(Answers({name: {"type": "choice", "choice": label, "confidence": 0.9}}), "sea-guard", provider=self.name)
+        (name, q), = questions.items()          # một câu có/không
+        p = ...                                  # gọi model: xác suất q["instructions"] đúng với state
+        return Response(Answers({name: {"type": "noul", "noul": p}}), "my-guard", provider=self.name)
 ```
 
 ```yaml
 providers:
-  sea_guard: {type: plugin, class: my_company.guards:SeaGuardProvider, options: {url: http://sea-guard:8000}, residency: local}
+  mine: {type: plugin, class: my_company.guards:MyGuard, residency: local}
 ```
 
 ## Quy trình chuyển model an toàn (ví dụ Jev → Luna)
@@ -118,12 +156,18 @@ providers:
    shadow: {provider: luna, sample: 0.2}
    ```
    Mỗi lần hai model khác nhau về mức xử lý hoặc về nhóm vi phạm, audit ghi một bản ghi `shadow.compare`, và metric `guardrail_shadow_disagreements_total` tăng.
-2. **Đo.** Lấy các bản ghi `shadow.compare` qua `GET /v1/audit?type=shadow.compare`, cho người gán nhãn đúng sai, rồi tính tỷ lệ chặn nhầm và bỏ sót của từng model theo từng nhóm.
-3. **Hiệu chỉnh.** Viết `calibration/luna.json`. Đây là một policy patch, có thể thay ngưỡng của từng nhóm theo từng điểm kiểm tra:
-   ```json
-   {"id": "calibration-luna", "categories": {"ipi": {"thresholds": {"default": {"flag": 0.3, "review": 0.5, "block": 0.75}}}}}
+2. **Đo trên bộ dữ liệu có nhãn.** Chạy cả hai model trên cùng bộ trường hợp, và ghi lại câu trả lời thô:
+   ```bash
+   guardrail-rag-jev -c jev.yaml  eval --dataset datasets/vi-rag-v1.jsonl --record runs/jev.jsonl
+   guardrail-rag-jev -c luna.yaml eval --dataset datasets/vi-rag-v1.jsonl --record runs/luna.jsonl
    ```
-   Lặp lại bước 1-3 cho đến khi tỷ lệ bất đồng chấp nhận được.
+   Lệnh in ra độ chính xác quyết định, tỷ lệ chặn nhầm, tỷ lệ bắt được và precision/recall theo nhóm. Bổ sung vào bộ dữ liệu các bản ghi `shadow.compare` (`GET /v1/audit?type=shadow.compare`) sau khi người duyệt gán nhãn đúng sai.
+3. **Hiệu chỉnh.** Phát lại bản ghi của Luna, không gọi mạng, và dò hệ số ngưỡng cho từng nhóm:
+   ```bash
+   guardrail-rag-jev -c luna.yaml calibrate --dataset datasets/vi-rag-v1.jsonl \
+       --replay runs/luna.jsonl --out calibration/luna.json --name calibration-luna --max-false-hold 0.05
+   ```
+   Kết quả là một policy patch có ngưỡng riêng cho Luna, nạp qua `providers.luna.calibration`. Lặp lại bước 1-3 cho đến khi tỷ lệ bất đồng chấp nhận được.
 4. **Chuyển từng phần.** Dùng `routing` để chuyển từng điểm kiểm tra sang Luna, ví dụ `routing: {ingest: luna}` trước, vì ingest không có người dùng chờ, sai thì chỉ vào hàng đợi review.
 5. **Chuyển hẳn.** Đổi `provider: luna`, và giữ Jev làm `fallback` hoặc `shadow` thêm một thời gian.
 

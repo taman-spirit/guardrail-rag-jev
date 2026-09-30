@@ -10,11 +10,14 @@ self-hosted judge) is evaluated on real traffic before it decides anything.
 
 from __future__ import annotations
 
+import fnmatch
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Mapping, Sequence
 
-from .base import Capabilities, Provider, ProviderError, Response
+from ..types import Usage
+from .base import Answers, Capabilities, Provider, ProviderError, Response
 
 log = logging.getLogger(__name__)
 
@@ -69,3 +72,45 @@ class ShadowProvider:
                 self.on_compare(state, questions, primary, None, exc)
             except Exception:  # noqa: BLE001
                 log.exception("shadow comparison callback failed")
+
+
+class RoutedProvider:
+    """Sends each question to the provider that should answer it.
+
+    ``routes`` is a list of (glob patterns, provider): a question goes to the first route whose
+    pattern matches its name and whose provider can answer it; everything else goes to ``default``.
+    The parts are asked in parallel and merged into one response. Typical use: the categories a
+    classifier covers go to it, the policy's signals and the rest to a general judge.
+    """
+
+    def __init__(self, routes: Sequence[tuple[Sequence[str], Provider]], default: Provider, *, name: str = "routed") -> None:
+        self.routes = [(list(patterns), provider) for patterns, provider in routes]
+        self.default = default
+        self.name = name
+        self.capabilities = Capabilities()
+        self._pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="provider-routed")
+
+    def _target(self, question_name: str) -> Provider:
+        for patterns, provider in self.routes:
+            if any(fnmatch.fnmatchcase(question_name, p) for p in patterns):
+                check = getattr(provider, "answerable", None)
+                if not callable(check) or check(question_name):
+                    return provider
+        return self.default
+
+    def decide(self, state: Any, questions: Mapping[str, Any], *, timeout: float | None = None) -> Response:
+        started = time.perf_counter()
+        groups: dict[int, tuple[Provider, dict[str, Any]]] = {}
+        for qname, q in questions.items():
+            provider = self._target(qname)
+            groups.setdefault(id(provider), (provider, {}))[1][qname] = q
+        futures = [self._pool.submit(p.decide, state, qs, timeout=timeout) for p, qs in groups.values()]
+        answers = Answers()
+        usage = Usage()
+        models = []
+        for f in futures:
+            r = f.result()
+            answers.update(r.answers)
+            usage = usage + r.usage
+            models.append(r.model)
+        return Response(answers, "+".join(m for m in models if m), usage, (time.perf_counter() - started) * 1000.0, self.name)

@@ -4,7 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
 
 COPY python/ /app/python/
-RUN pip install "/app/python[server]" && useradd --system --uid 10001 guardrail && mkdir -p /data /config \
+RUN pip install "/app/python[server,redis,sso,otel]" && useradd --system --uid 10001 guardrail && mkdir -p /data /config \
     && chown guardrail /data
 
 COPY config/guardrail.example.yaml /config/guardrail.yaml

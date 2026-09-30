@@ -101,7 +101,10 @@ Việt Nam cần judge chạy nội bộ vì lý do dữ liệu (xem 3.2).
 | `llm-judge` | ổn định | Mọi model có API tương thích OpenAI: OpenAI, Azure, vLLM, Ollama, NIM, GreenNode MaaS, Vistral/SeaLLM tự host |
 | `offline` | demo | Heuristic từ khoá, không dùng cho nội dung thật |
 | `fallback` | ổn định | Chuỗi provider; provider đầu tiên trả lời được thì dùng |
-| `plugin` | mở rộng | `module:Class` của bạn, ví dụ Llama Guard, Granite Guardian, SEA-Guard |
+| `granite-guardian`, `sea-guard`, `classifier` | ổn định | classifier có/không tự host; SEA-Guard có tiếng Việt |
+| `llama-guard` | ổn định | taxonomy S1-S14; dùng trong `routed` |
+| `routed` | ổn định | chia câu hỏi cho nhiều provider theo tên |
+| `plugin` | mở rộng | `module:Class` của bạn |
 
 **Hiệu chỉnh theo model.** Ngưỡng trong policy được hiệu chỉnh cho một model cụ thể. Khi đổi model,
 nạp *calibration overlay* của model đó (một policy patch, cùng cơ chế với gói luật) qua
@@ -199,12 +202,63 @@ Mục tiêu với Jev: p50 ≤ 150 ms và p95 ≤ 400 ms cộng thêm cho `query
 - **`answer`** là lần kiểm duy nhất nằm trên đường đi đến người dùng sau khi sinh. Khi streaming, dùng `partial=True` cho các đoạn giữa chừng (chỉ hỏi nhóm sentinel), và kiểm đầy đủ khi câu trả lời hoàn tất.
 - **`ingest`** bị giới hạn bởi bước parse tài liệu (0,5-3 s/trang), không phải bởi guardrail. Dùng job bất đồng bộ, cache theo hash, và micro-batch theo giới hạn tốc độ của provider (`concurrency`).
 
-## 6. Những gì chưa làm
+## 6. Bổ sung ở phiên bản 0.2.0
 
-- Adapter chính thức cho Llama Guard 4, Granite Guardian và SEA-Guard. Có thể thêm ngay qua `plugin`.
-- Streaming qua SSE với tín hiệu rút lại (retract).
-- Job queue phân tán (Redis/Kafka). Hiện tại job chạy trong tiến trình và được lưu bằng SQLite.
-- Tracing OpenTelemetry. Hiện tại có metrics Prometheus và audit log.
-- Đăng nhập SSO cho người duyệt và duyệt hai người (four-eyes). Hiện tại phân quyền theo API key và tenant.
-- Connector purge cho từng vector store (pgvector, Milvus, Qdrant...). Hiện tại chỉ trả `metadata` để ghi ngược vào vector store.
-- Bộ dữ liệu có nhãn tiếng Việt để hiệu chỉnh ngưỡng theo từng provider.
+### 6.1. Classifier an toàn mã nguồn mở
+
+Loại provider `granite-guardian`, `sea-guard` và `classifier` làm việc với các model chỉ trả lời
+có/không cho một tiêu chí mỗi lần. Xác suất lấy từ logprob của token Yes/No khi server trả về.
+`Normalizing` tách câu hỏi chọn-một thành từng câu có/không cho mỗi nhãn, và câu hỏi trùng nội dung
+chỉ hỏi một lần.
+
+`llama-guard` ánh xạ S1-S14 sang các nhóm của policy và chỉ trả lời những nhóm đó. `routed` chia
+bộ câu hỏi theo tên: phần Llama Guard biết thì hỏi nó, phần còn lại (gói luật Việt Nam, tín hiệu,
+injection) hỏi một judge khác. Residency được kiểm cho mọi thành viên.
+
+### 6.2. Streaming có rút lại
+
+`guard.answer_stream()` và `POST /v1/answer/streams`:
+
+- **Cắt đoạn.** Văn bản được cắt theo câu sau mỗi `chunk_chars` ký tự.
+- **Kiểm từng đoạn.** Mỗi đoạn được kiểm cùng phần đuôi đã nhả (vùng chồng lấp), để câu vi phạm bị cắt đôi vẫn được đọc liền. Chỉ văn bản đã kiểm mới được nhả (`release`).
+- **Dừng.** Đoạn vi phạm làm dừng stream (`stop`) trước khi hiện ra.
+- **Rút lại.** Khi kết thúc, câu trả lời đầy đủ được kiểm với toàn bộ câu hỏi. Nếu phát hiện điều mà các lần kiểm từng đoạn không thấy (ví dụ không bám nguồn), guard phát `retract` để client thay toàn bộ phần đã hiện.
+
+Phiên streaming nằm trong bộ nhớ của một instance, nên cần sticky session.
+
+### 6.3. Duyệt hai người và SSO
+
+`review.two_person` liệt kê các điểm kiểm tra hoặc nhóm cần hai người duyệt khác nhau mới được phát
+hành (approve/edit). Từ chối chỉ cần một người. Một lần sửa (edit) sẽ đếm lại từ đầu, vì người trước đã
+duyệt một văn bản khác. Mỗi lượt duyệt ghi audit `review.approval`; lượt đủ số ghi `review.decided`.
+
+`server.oidc` nhận JWT của IdP (Keycloak, Entra ID, Okta...). Guard xác thực chữ ký bằng JWKS, kiểm
+issuer, audience và hạn dùng, rồi ánh xạ claim sang vai trò và tenant. Tenant trong token giới hạn
+người dùng vào đúng tenant đó, như API key gắn tenant.
+
+### 6.4. OpenTelemetry
+
+`telemetry.otel: true`: mỗi lần kiểm tra là một span `guardrail.check`, lời gọi model là span con
+`guardrail.judge`. Thuộc tính gồm `guardrail.*` và `gen_ai.*`. Nội dung không bao giờ được gắn vào span.
+
+### 6.5. Job phân tán
+
+`jobs.backend: redis`: service chỉ đưa job vào hàng đợi; nhiều process `guardrail-rag-jev worker`
+lấy ra xử lý (BLMOVE sang danh sách processing). Job của worker đã chết (không có tiến độ sau
+`stale_after` giây) được đưa lại vào hàng đợi. Audit dùng backend SQLite để các process chung một
+chuỗi băm. `docker compose --profile workers` chạy sẵn Redis và 2 worker.
+
+### 6.6. Đo và hiệu chỉnh
+
+- **Bộ dữ liệu.** `datasets/vi-rag-v1.jsonl` có 48 trường hợp gán nhãn, phủ cả bốn điểm kiểm tra: gói luật Việt Nam, rủi ro RAG, trường hợp gần vi phạm nhưng hợp lệ, và nội dung nhiều vi phạm. Ngôn ngữ gồm tiếng Việt, tiếng Anh, tiếng Trung và tiếng Nhật.
+- **`eval`.** Đo độ chính xác quyết định, tỷ lệ chặn nhầm, tỷ lệ bắt được, và precision/recall theo nhóm. `--record` ghi lại câu trả lời thô của model.
+- **`calibrate`.** Phát lại bản ghi dưới các hệ số ngưỡng khác nhau, chọn hệ số tốt nhất cho từng nhóm trong giới hạn chặn nhầm, rồi xuất overlay để nạp qua `providers.<name>.calibration`.
+
+Xem [providers.vi.md](providers.vi.md).
+
+## 7. Những gì chưa làm
+
+- Connector purge cho từng vector store (pgvector, Milvus, Qdrant...). Hiện tại guard trả `metadata` để ghi ngược vào vector store.
+- Streaming qua SSE hoặc WebSocket. Hiện tại streaming dùng phiên HTTP request/response.
+- Job queue trên Kafka. Hiện tại có backend local và Redis.
+- Bộ dữ liệu lớn hơn, lấy từ traffic thật đã qua review. 48 trường hợp chỉ cho biết hướng đi, chưa phải số đo.

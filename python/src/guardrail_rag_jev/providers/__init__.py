@@ -7,7 +7,12 @@ Built-in provider types, chosen by ``type`` in the config:
 ``openai-decisions``      OpenAI Decisions API on GPT-6 Luna. Experimental: schema not yet published
 ``llm-judge``             any OpenAI-compatible chat model: OpenAI, Azure, vLLM, Ollama, local models
 ``offline``               keyword heuristic for demos and tests. Never for real content
+``granite-guardian``      IBM Granite Guardian, one yes/no criterion per request (self-hosted)
+``sea-guard``             AI Singapore SEA-Guard, Southeast Asian languages incl. Vietnamese (self-hosted)
+``classifier``            any yes/no safety classifier with the generic prompt
+``llama-guard``           Meta Llama Guard's S1-S14 taxonomy; answers only the categories it covers
 ``fallback``              a chain of other providers, the first that answers wins
+``routed``                questions split between providers by name pattern
 ``plugin``                your own class, ``class: "package.module:ClassName"``
 ========================  ==========================================================================
 """
@@ -18,14 +23,16 @@ import importlib
 from typing import Any, Mapping
 
 from .base import Answers, Capabilities, Normalizing, Provider, ProviderError, Response
-from .composite import FallbackProvider, ShadowProvider
+from .classifiers import LlamaGuardProvider, YesNoClassifierProvider
+from .composite import FallbackProvider, RoutedProvider, ShadowProvider
 from .jev import JevProvider
 from .llm_judge import LLMJudgeProvider
 from .offline import OfflineProvider
 from .openai_decisions import OpenAIDecisionsProvider
 from .testing import CallableProvider, RecordedProvider, RecordingProvider
 
-PROVIDER_TYPES = ("jev", "openai-decisions", "llm-judge", "offline", "fallback", "plugin")
+PROVIDER_TYPES = ("jev", "openai-decisions", "llm-judge", "granite-guardian", "sea-guard", "classifier", "llama-guard",
+                  "offline", "fallback", "routed", "plugin")
 
 
 def build_provider(name: str, specs: Mapping[str, Mapping[str, Any]]) -> Provider:
@@ -51,6 +58,15 @@ def _build(name: str, specs: Mapping[str, Mapping[str, Any]], *, seen: tuple[str
     elif kind == "llm-judge":
         provider = LLMJudgeProvider(name=name, **_keep(spec, "model", "base_url", "api_key", "timeout", "max_questions",
                                                         "json_mode", "temperature", "headers", "path"))
+    elif kind in ("granite-guardian", "sea-guard", "classifier"):
+        preset = "generic" if kind == "classifier" else kind
+        provider = YesNoClassifierProvider(name=name, preset=spec.pop("preset", preset),
+                                           **_keep(spec, "model", "base_url", "api_key", "timeout", "path"))
+    elif kind == "llama-guard":
+        provider = LlamaGuardProvider(name=name, **_keep(spec, "model", "base_url", "api_key", "timeout", "path", "category_map"))
+    elif kind == "routed":
+        routes = [(list(r.get("match") or ()), _build(str(r["provider"]), specs, seen=(*seen, name))) for r in spec.get("routes") or ()]
+        return RoutedProvider(routes, _build(str(spec["default"]), specs, seen=(*seen, name)), name=name)
     elif kind == "offline":
         provider = OfflineProvider()
     elif kind == "fallback":
@@ -81,6 +97,7 @@ __all__ = [
     "FallbackProvider",
     "JevProvider",
     "LLMJudgeProvider",
+    "LlamaGuardProvider",
     "Normalizing",
     "OfflineProvider",
     "OpenAIDecisionsProvider",
@@ -89,7 +106,9 @@ __all__ = [
     "ProviderError",
     "RecordedProvider",
     "RecordingProvider",
+    "RoutedProvider",
     "Response",
     "ShadowProvider",
+    "YesNoClassifierProvider",
     "build_provider",
 ]

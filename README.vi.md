@@ -46,7 +46,10 @@ có thể thực thi ngay:
   - hoặc plugin của bạn.
   
   Có fallback, chế độ shadow để so sánh hai model, và kiểm soát nơi dữ liệu được xử lý (residency).
-- **Review và audit.** Có hàng đợi duyệt với giao diện web; quyết định của người duyệt được nhớ theo hash nội dung; webhook có chữ ký. Audit log dạng chuỗi băm có `verify()`, và mặc định không lưu dữ liệu cá nhân thô.
+- **Streaming có rút lại.** Câu trả lời được kiểm từng đoạn khi LLM đang sinh. Đoạn vi phạm bị chặn trước khi hiện ra, và phần đã hiện được rút lại nếu câu trả lời đầy đủ không đạt.
+- **Classifier tự host:** SEA-Guard (có tiếng Việt), Granite Guardian, Llama Guard, có thể kết hợp nhiều model trong một policy (`routed`).
+- **Đo và hiệu chỉnh:** bộ dữ liệu tiếng Việt có nhãn, lệnh `eval` và `calibrate` để đặt ngưỡng riêng cho từng model.
+- **Review và audit.** Có hàng đợi duyệt với giao diện web, hỗ trợ duyệt hai người cho nhóm nhạy cảm và đăng nhập SSO (OIDC); quyết định của người duyệt được nhớ theo hash nội dung; webhook có chữ ký. Audit log dạng chuỗi băm có `verify()`, và mặc định không lưu dữ liệu cá nhân thô.
 - **Đa ngôn ngữ.** Model đánh giá theo nghĩa ở mọi ngôn ngữ. Câu trả lời viết sẵn có tiếng Việt, tiếng Anh, tiếng Trung và tiếng Nhật.
 - **Tích hợp:** thư viện Python, service HTTP, Go client, LangChain, LlamaIndex, Dify, Azure AI Search, AWS Bedrock, Open WebUI.
 
@@ -198,13 +201,24 @@ Hướng dẫn chọn model và quy trình chuyển từ Jev sang Luna: [docs/pr
 
 - **Hàng đợi review:** `GET /v1/reviews`, `POST /v1/reviews/{id}/decision` với `approve` / `reject` / `edit`, hoặc giao diện web tại `/ui`. Quyết định được nhớ theo hash nội dung, nên lần sau gặp lại đúng văn bản đó thì không hỏi model nữa.
 - **Audit log:** mỗi lần kiểm tra, quyết định review và thay đổi policy là một bản ghi chứa hash của bản trước. `GET /v1/audit/verify` chỉ ra chính xác bản ghi bị sửa hoặc xoá.
-- **Metrics:** `GET /metrics` (Prometheus), có số lần kiểm tra ở trạng thái degraded và số lần hai model bất đồng khi chạy shadow.
+- **Metrics:** `GET /metrics` (Prometheus), có số lần kiểm tra ở trạng thái degraded và số lần hai model bất đồng khi chạy shadow. Tracing OpenTelemetry bật bằng `telemetry.otel: true`.
+
+## Đo và hiệu chỉnh
+
+```bash
+guardrail-rag-jev eval --dataset datasets/vi-rag-v1.jsonl --record runs/jev.jsonl
+guardrail-rag-jev calibrate --dataset datasets/vi-rag-v1.jsonl --replay runs/jev.jsonl --out calibration/jev.json
+```
+
+`eval` in ra độ chính xác, tỷ lệ chặn nhầm, tỷ lệ bắt được và precision/recall theo nhóm.
+`calibrate` phát lại bản ghi, không gọi mạng, rồi xuất ngưỡng hiệu chỉnh cho đúng model đó.
 
 ## Triển khai
 
 ```bash
 docker compose up                      # service + Jev
 docker compose --profile local up      # thêm vLLM để chạy judge nội bộ
+GUARDRAIL_JOBS_BACKEND=redis docker compose --profile workers up   # thêm Redis và 2 worker xử lý job ingest
 ```
 
 Cấu hình đầy đủ, có chú thích: [config/guardrail.example.yaml](config/guardrail.example.yaml).

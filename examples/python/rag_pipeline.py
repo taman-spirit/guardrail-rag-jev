@@ -97,6 +97,14 @@ async def main() -> None:
         print("== Q:", q)
         print("   ->", (await answer(guard, store, q)).replace("\n", "\n      "), "\n")
 
+    print("== streaming: show the answer while the model writes it")
+    stream = guard.answer_stream(query="Chính sách đổi trả?", chunk_chars=60)
+    draft = "Bạn được đổi trả trong 30 ngày. Sản phẩm cần còn nguyên tem nhãn. Tiền hoàn về tài khoản trong 5-7 ngày làm việc."
+    events = [e for i in range(0, len(draft), 12) for e in stream.feed(draft[i:i + 12])] + stream.finish()
+    for e in events:
+        print(f"   {e.type:8} {e.text!r}" if e.type != "done" else f"   done     {e.result.decision}")
+    print()
+
     pending = guard.reviews.list(status="pending")
     print(f"== review queue: {len(pending)} pending: {[(i['id'], [v['category'] for v in i['violations']]) for i in pending]}")
     print("== audit:", guard.audit.verify())

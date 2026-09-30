@@ -1,5 +1,6 @@
 # docker compose up            the service with Jev (set JEV_API_KEY and the GUARDRAIL_*_KEY variables)
 # docker compose --profile local up   also a local judge on vLLM, for deployments that keep data in-house
+# GUARDRAIL_JOBS_BACKEND=redis docker compose --profile workers up   also Redis and two ingest workers
 services:
   guardrail:
     build: .
@@ -10,6 +11,7 @@ services:
       GUARDRAIL_REVIEWER_KEY: ${GUARDRAIL_REVIEWER_KEY:-}
       GUARDRAIL_ADMIN_KEY: ${GUARDRAIL_ADMIN_KEY:-}
       GUARDRAIL_WEBHOOK_SECRET: ${GUARDRAIL_WEBHOOK_SECRET:-}
+      GUARDRAIL_JOBS_BACKEND: ${GUARDRAIL_JOBS_BACKEND:-local}   # redis with the workers profile
     volumes:
       - guardrail-data:/data
       - ./deploy/guardrail.docker.yaml:/config/guardrail.yaml:ro
@@ -27,6 +29,25 @@ services:
           devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
     volumes:
       - hf-cache:/root/.cache/huggingface
+
+  redis:
+    profiles: ["workers"]
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  worker:
+    profiles: ["workers"]
+    build: .
+    command: ["guardrail-rag-jev", "worker"]
+    deploy: {replicas: 2}
+    environment:
+      JEV_API_KEY: ${JEV_API_KEY:-}
+      GUARDRAIL_JOBS_BACKEND: redis
+    volumes:
+      - guardrail-data:/data
+      - ./deploy/guardrail.docker.yaml:/config/guardrail.yaml:ro
+    depends_on: [redis]
+    restart: unless-stopped
 
 volumes:
   guardrail-data:

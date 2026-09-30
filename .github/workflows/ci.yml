@@ -55,6 +55,7 @@ jobs:
           cd "$GITHUB_WORKSPACE/examples/go" && go run ./rag
           cd "$GITHUB_WORKSPACE" && python examples/python/service_client.py
           python examples/python/rag_pipeline.py
+          guardrail-rag-jev eval --offline --dataset datasets/vi-rag-v1.jsonl
 
   docker:
     runs-on: ubuntu-latest

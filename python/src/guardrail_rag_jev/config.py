@@ -114,6 +114,9 @@ class ReviewConfig:
     webhook_secret: str | None = None
     #: Days a decided item keeps its content before it is purged; 0 keeps it.
     retention_days: int = 90
+    #: Four-eyes review: items on these surfaces, or carrying these categories, need two different
+    #: reviewers to release them (approve or edit). Rejecting always needs one.
+    two_person: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -132,6 +135,8 @@ class ServerConfig:
     api_keys: list[ApiKey] = field(default_factory=list)
     cors_origins: list[str] = field(default_factory=list)
     max_batch: int = 256
+    #: OpenID Connect single sign-on; see guardrail_rag_jev.auth.
+    oidc: dict[str, Any] | None = None
 
 
 @dataclass
@@ -157,6 +162,11 @@ class Config:
     cache: dict[str, Any] = field(default_factory=lambda: {"enabled": True, "capacity": 8192, "ttl": 900})
     concurrency: int = 8
     timeout: float | None = None
+    #: {"otel": true} to emit OpenTelemetry spans; see guardrail_rag_jev.telemetry.
+    telemetry: dict[str, Any] = field(default_factory=dict)
+    #: Where ingest jobs run: {"backend": "local"} (in the service) or {"backend": "redis", "url": ...}
+    #: with `guardrail-rag-jev worker` processes; see guardrail_rag_jev.jobs.
+    jobs: dict[str, Any] = field(default_factory=dict)
     audit: AuditConfig = field(default_factory=AuditConfig)
     review: ReviewConfig = field(default_factory=ReviewConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
@@ -197,7 +207,7 @@ class Config:
         known = {
             "provider", "providers", "routing", "shadow", "policy", "enforcement", "redaction", "patterns",
             "locate", "default_language", "crisis_line", "cache", "concurrency", "timeout", "audit", "review",
-            "server", "state_path", "jev", "residency", "profiles",
+            "server", "state_path", "jev", "residency", "profiles", "telemetry", "jobs",
         }
         unknown = set(data) - known
         if unknown:
@@ -260,6 +270,8 @@ class Config:
         if data.get("cache") is not None:
             cfg.cache = {**cfg.cache, **dict(data["cache"])}
         cfg.concurrency = int(data.get("concurrency", cfg.concurrency))
+        cfg.telemetry = dict(data.get("telemetry") or {})
+        cfg.jobs = dict(data.get("jobs") or {})
         cfg.timeout = data.get("timeout", cfg.timeout)
         if data.get("audit"):
             cfg.audit = AuditConfig(**dict(data["audit"]))

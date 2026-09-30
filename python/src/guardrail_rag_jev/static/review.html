@@ -83,6 +83,7 @@ async function show(id) {
   $("#detail").innerHTML = `
     <h2 style="margin-top:0">${esc(it.id)} <span class="chip">${esc(it.status)}</span></h2>
     <p class="meta">${esc(it.surface)} · ${esc(it.reason)} · check ${esc(it.check_id)} · ${esc(it.tenant || "")}</p>
+    ${(it.required_approvals || 1) > 1 ? `<p><b>Cần ${it.required_approvals} người duyệt khác nhau.</b> Đã duyệt: ${(it.approvals || []).map((a) => esc(a.reviewer) + " (" + esc(a.decision) + ")").join(", ") || "chưa có"}</p>` : ""}
     <h3>Vi phạm</h3>
     <table><tr><th>Nhóm</th><th>Mức</th><th>Xác suất</th><th>Nguồn</th><th>Căn cứ</th><th>Vị trí</th></tr>${rows}</table>
     <h3>Nội dung</h3><pre>${esc(it.content ?? "(đã xoá theo thời hạn lưu trữ)")}</pre>

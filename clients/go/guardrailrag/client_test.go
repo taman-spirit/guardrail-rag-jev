@@ -95,3 +95,33 @@ func TestVerifySignatureMatchesThePythonService(t *testing.T) {
 		t.Fatal("a wrong secret or body verified")
 	}
 }
+
+func TestAnswerStream(t *testing.T) {
+	c := serve(t, func(path string, body map[string]any, r *http.Request) (int, any) {
+		switch path {
+		case "/v1/answer/streams":
+			return 201, map[string]any{"stream_id": "st_1"}
+		case "/v1/answer/streams/st_1/chunks":
+			return 200, map[string]any{"events": []any{map[string]any{"type": "release", "text": body["text"]}}}
+		case "/v1/answer/streams/st_1/finish":
+			return 200, map[string]any{"events": []any{
+				map[string]any{"type": "notice", "text": "AI"},
+				map[string]any{"type": "done", "result": map[string]any{"decision": "pass", "usable": true}}}}
+		}
+		t.Errorf("unexpected %s", path)
+		return 404, nil
+	})
+	ctx := context.Background()
+	s, err := c.StartAnswerStream(ctx, AnswerStreamRequest{Query: "q"})
+	if err != nil || s.ID != "st_1" {
+		t.Fatal(err)
+	}
+	ev, _ := s.Feed(ctx, "Xin chào. ")
+	if ev[0].Type != "release" || ev[0].Text != "Xin chào. " {
+		t.Fatalf("%+v", ev)
+	}
+	ev, _ = s.Finish(ctx)
+	if ev[1].Type != "done" || ev[1].Result.Decision != Pass {
+		t.Fatalf("%+v", ev)
+	}
+}

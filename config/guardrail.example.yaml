@@ -37,6 +37,30 @@ providers:
   #   calibration: ../calibration/vistral.json
   #   residency: local
 
+  # example: open safety classifiers, self-hosted behind vLLM (one yes/no criterion per request)
+  # sea_guard:                         # AI Singapore SEA-Guard: Southeast Asian languages incl. Vietnamese
+  #   type: sea-guard
+  #   base_url: http://sea-guard:8000/v1
+  #   model: aisingapore/Qwen-SEA-Guard-8B-2602
+  #   residency: local
+  # granite:                           # IBM Granite Guardian: bring-your-own criteria, groundedness
+  #   type: granite-guardian
+  #   base_url: http://granite:8000/v1
+  #   model: ibm-granite/granite-guardian-4.1-8b
+  #   residency: local
+  # llama_guard:                       # Meta Llama Guard: S1-S14 taxonomy only
+  #   type: llama-guard
+  #   base_url: http://llama-guard:8000/v1
+  #   model: meta-llama/Llama-Guard-4-12B
+  #   residency: local
+
+  # example: split the questions: what Llama Guard covers goes to it, the rest to the local judge
+  # mixed:
+  #   type: routed
+  #   routes:
+  #     - {match: ["s_*", "m_*", "l_*"], provider: llama_guard}
+  #   default: local
+
   # example: Jev, and the local judge when Jev cannot be reached
   # resilient:
   #   type: fallback
@@ -131,6 +155,7 @@ review:
   webhook_url: null                      # receives review.decided and job.done, signed with the secret
   webhook_secret: ${GUARDRAIL_WEBHOOK_SECRET:-}
   retention_days: 90
+  two_person: []                         # example: [vsv, vas, vld, cse] -- two reviewers to release these
 
 state_path: ../data/policy-state.json
 
@@ -141,6 +166,23 @@ server:
     - {key: "${GUARDRAIL_ADMIN_KEY:-}", role: admin, name: admin}
   cors_origins: []
   max_batch: 256
+  # example: single sign-on for reviewers and admins (pip install "guardrail-rag-jev[sso]")
+  # oidc:
+  #   issuer: https://sso.example.vn/realms/acme
+  #   audience: guardrail
+  #   jwks_url: https://sso.example.vn/realms/acme/protocol/openid-connect/certs
+  #   roles_claim: realm_access.roles
+  #   role_map: {guardrail-admin: admin, guardrail-reviewer: reviewer, guardrail-app: client}
+  #   tenant_claim: tenant
+
+# Ingest jobs: local (in the service) or redis (enqueued, run by `guardrail-rag-jev worker` processes)
+jobs:
+  backend: local
+  # backend: redis
+  # url: redis://redis:6379/0
+
+telemetry:
+  otel: false                            # OpenTelemetry spans (pip install "guardrail-rag-jev[otel]")
 
 # example: per-tenant or per-app settings, chosen with the X-Guardrail-Profile header or a bound key
 # profiles:

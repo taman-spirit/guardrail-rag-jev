@@ -23,6 +23,7 @@ from .providers import (
     Capabilities,
     FallbackProvider,
     JevProvider,
+    LlamaGuardProvider,
     LLMJudgeProvider,
     Normalizing,
     OfflineProvider,
@@ -31,9 +32,14 @@ from .providers import (
     ProviderError,
     RecordedProvider,
     RecordingProvider,
+    RoutedProvider,
     ShadowProvider,
+    YesNoClassifierProvider,
     build_provider,
 )
+from .evaluate import ReplayProvider, calibrate, evaluate, load_cases
+from .jobs import LocalJobs, RedisJobs, run_worker
+from .streaming import AnswerStream, StreamEvent
 from .review import ReviewStore, verify_signature
 from .types import (
     ContextResult,
@@ -49,7 +55,7 @@ from .types import (
     Verdict,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "BASE", "BUNDLED_PACKS", "CallableProvider", "Capabilities", "Config", "ContextResult", "DETECTORS", "Decision",
@@ -57,6 +63,8 @@ __all__ = [
     "JsonlAuditLog", "LLMJudgeProvider", "LRUCache", "Location", "MemoryAuditLog", "Normalizing", "OfflineProvider",
     "OpenAIDecisionsProvider", "Policy", "Provider", "ProviderError", "RecordedProvider", "RecordingProvider",
     "Redaction", "Responder", "Result", "ReviewStore", "SURFACES", "ShadowProvider", "SqliteAuditLog", "Surface",
-    "SurfaceEnforcement", "Verdict", "build_provider", "bundled_names", "content_hash", "defang_urls",
+    "SurfaceEnforcement", "Verdict", "build_provider", "AnswerStream", "StreamEvent", "LlamaGuardProvider",
+    "YesNoClassifierProvider", "RoutedProvider", "ReplayProvider", "calibrate", "evaluate", "load_cases", "LocalJobs",
+    "RedisJobs", "run_worker", "bundled_names", "content_hash", "defang_urls",
     "detect_language", "open_audit_log", "redact", "residency_of", "segment", "verify_signature", "__version__",
 ]

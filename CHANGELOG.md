@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.0 (2026-09-30)
+
+- Self-hosted safety classifiers: `sea-guard`, `granite-guardian` and `classifier` (one yes/no
+  criterion per request, probabilities from token log-probabilities) and `llama-guard` (S1-S14
+  mapped to the policy's categories). `routed` splits a question set between providers by name. The
+  normaliser now asks a choice label by label for models without choice questions, and asks
+  identical questions once.
+- Streamed answers: `Guard.answer_stream()` and `/v1/answer/streams` release checked text chunk by
+  chunk, stop on a violating chunk, and retract what was shown when the complete answer fails.
+- Four-eyes review: `review.two_person` makes chosen surfaces or categories need two different
+  reviewers to release; rejecting needs one. `review.approval` is audited and posted.
+- Single sign-on: OpenID Connect access tokens, verified against the provider's JWKS, with roles and
+  tenants mapped from claims (`server.oidc`).
+- OpenTelemetry: `guardrail.check` and `guardrail.judge` spans (`telemetry.otel`).
+- Distributed ingest jobs: `jobs.backend: redis` and `guardrail-rag-jev worker`, with stale jobs
+  requeued; `docker compose --profile workers`.
+- Evaluation and calibration: `datasets/vi-rag-v1.jsonl` (48 labelled cases), `eval` (with
+  `--record` / `--replay`) and `calibrate`, which writes a per-provider calibration overlay.
+- Go client: `StartAnswerStream`, `Feed`, `Finish`.
+
 ## 0.1.0 (2026-09-30)
 
 First release.

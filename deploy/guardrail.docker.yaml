@@ -26,6 +26,10 @@ review:
   webhook_secret: ${GUARDRAIL_WEBHOOK_SECRET:-}
 state_path: /data/policy-state.json
 
+jobs:
+  backend: ${GUARDRAIL_JOBS_BACKEND:-local}   # redis with `docker compose --profile workers up`
+  url: redis://redis:6379/0
+
 server:
   api_keys:
     - {key: "${GUARDRAIL_CLIENT_KEY:-}", role: client, name: rag-app}

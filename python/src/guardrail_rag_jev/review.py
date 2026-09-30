@@ -74,12 +74,19 @@ class ReviewStore:
                 decision TEXT NOT NULL, replacement TEXT, review_id TEXT, created_at TEXT, created_by TEXT,
                 PRIMARY KEY (tenant, scope, content_hash)
             );
+            CREATE TABLE IF NOT EXISTS approvals (
+                review_id TEXT NOT NULL, reviewer TEXT NOT NULL, decision TEXT NOT NULL, content TEXT, note TEXT, at TEXT,
+                PRIMARY KEY (review_id, reviewer)
+            );
             CREATE TABLE IF NOT EXISTS jobs (
                 id TEXT PRIMARY KEY, created_at TEXT, updated_at TEXT, status TEXT, total INTEGER, done INTEGER,
                 summary TEXT, results TEXT, error TEXT, callback_url TEXT, tenant TEXT, profile TEXT
             );
             """
         )
+        columns = {r[1] for r in self._q("PRAGMA table_info(reviews)", fetch="tuples")}
+        if "required_approvals" not in columns:  # a database created before four-eyes review
+            self._q("ALTER TABLE reviews ADD COLUMN required_approvals INTEGER DEFAULT 1")
 
     def _q(self, sql: str, args: tuple | list = (), *, fetch: str = "none") -> Any:
         """Run one statement and read its result before letting go of the connection.
@@ -134,6 +141,7 @@ class ReviewStore:
         check_id: str,
         tenant: str = "",
         profile: str = "",
+        required_approvals: int = 1,
     ) -> str:
         """Queue an item. The same content already pending in the same scope is not queued twice:
         the existing item's id is returned."""
@@ -149,15 +157,20 @@ class ReviewStore:
             now = _now()
             self._q(
                 "INSERT INTO reviews (id, created_at, updated_at, status, surface, scope, content_hash, content, language,"
-                " decision, reason, violations, verdict, ref, tenant, profile, check_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " decision, reason, violations, verdict, ref, tenant, profile, check_id, required_approvals)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (rid, now, now, "pending", surface, scope, content_hash, content, language, decision, reason,
                  json.dumps(violations, ensure_ascii=False), json.dumps(verdict, ensure_ascii=False, default=str),
-                 json.dumps(dict(ref), ensure_ascii=False, default=str), tenant, profile, check_id),
+                 json.dumps(dict(ref), ensure_ascii=False, default=str), tenant, profile, check_id, max(1, required_approvals)),
             )
             return rid
 
     def get(self, review_id: str) -> dict[str, Any] | None:
-        return self._q("SELECT * FROM reviews WHERE id=?", (review_id,), fetch="one")
+        item = self._q("SELECT * FROM reviews WHERE id=?", (review_id,), fetch="one")
+        if item is not None:
+            item["approvals"] = self._q(
+                "SELECT reviewer, decision, note, at FROM approvals WHERE review_id=? ORDER BY at", (review_id,), fetch="all")
+        return item
 
     def list(self, *, status: str | None = "pending", surface: str | None = None, tenant: str | None = None,
              limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
@@ -175,7 +188,12 @@ class ReviewStore:
         return {s: n for s, n in self._q(sql, (tenant,) if tenant else (), fetch="tuples")}
 
     def decide(self, review_id: str, decision: str, *, reviewer: str, note: str = "", content: str | None = None) -> dict[str, Any]:
-        """Settle an item and record the override."""
+        """Record a reviewer's decision, and settle the item when it has enough of them.
+
+        Rejecting settles at once: keeping content out is the safe direction. Releasing it (approve
+        or edit) needs ``required_approvals`` different reviewers. An edit restarts the count, since
+        the others approved a different text; the same reviewer cannot approve twice.
+        """
         if decision not in DECISIONS:
             raise ValueError(f"decision must be one of {DECISIONS}")
         if decision == "edit" and not content:
@@ -187,6 +205,24 @@ class ReviewStore:
             if item["status"] != "pending":
                 raise ValueError(f"review {review_id} is already {item['status']}")
             now = _now()
+            required = int(item.get("required_approvals") or 1)
+            if decision != "reject" and required > 1:
+                if decision == "edit":
+                    self._q("DELETE FROM approvals WHERE review_id=?", (review_id,))
+                elif any(a["reviewer"] == reviewer for a in item["approvals"]):
+                    raise ValueError(f"{reviewer} has already approved {review_id}; a second reviewer must confirm")
+                self._q("INSERT OR REPLACE INTO approvals (review_id, reviewer, decision, content, note, at) VALUES (?,?,?,?,?,?)",
+                        (review_id, reviewer, decision, content, note, now))
+                rows = self._q("SELECT reviewer, decision, content FROM approvals WHERE review_id=? ORDER BY at", (review_id,), fetch="all")
+                if len({r["reviewer"] for r in rows}) < required:
+                    self._q("UPDATE reviews SET updated_at=? WHERE id=?", (now, review_id))
+                    waiting = self.get(review_id) or {}
+                    self._notify({"event": "review.approval", "review": _public(waiting)})
+                    return waiting
+                edited = next((r["content"] for r in rows if r["decision"] == "edit"), None)
+                if edited is not None:
+                    decision, content = "edit", edited
+                reviewer = ",".join(r["reviewer"] for r in rows)
             final = content if decision == "edit" else (item["content"] if decision == "approve" else None)
             self._q(
                 "UPDATE reviews SET status=?, updated_at=?, decided_by=?, decided_at=?, note=?, final_content=? WHERE id=?",
@@ -301,5 +337,5 @@ def _row(cur: sqlite3.Cursor, row: tuple) -> dict[str, Any]:
 def _public(item: Mapping[str, Any]) -> dict[str, Any]:
     """What a webhook receiver needs; the verdict details stay in the store."""
     keys = ("id", "status", "surface", "scope", "content_hash", "final_content", "ref", "tenant", "profile",
-            "decided_by", "decided_at", "note", "check_id")
+            "decided_by", "decided_at", "note", "check_id", "required_approvals", "approvals")
     return {k: item.get(k) for k in keys}

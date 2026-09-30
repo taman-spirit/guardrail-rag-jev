@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "guardrail-rag-jev"
-version = "0.1.0"
+version = "0.2.0"
 description = "Content guardrails for RAG: ingest, query, context and answer checks, Viet Nam law packs, review queue and audit log, with a pluggable judging model (Jev by default)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,7 +15,11 @@ dependencies = ["pyyaml>=6"]
 server = ["fastapi>=0.115", "uvicorn>=0.30"]
 langchain = ["langchain-core>=0.3"]
 llamaindex = ["llama-index-core>=0.12"]
-dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.115", "uvicorn>=0.30"]
+sso = ["pyjwt[crypto]>=2.8"]
+otel = ["opentelemetry-api>=1.25"]
+redis = ["redis>=5"]
+dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.115", "uvicorn>=0.30", "pyjwt[crypto]>=2.8", "opentelemetry-sdk>=1.25",
+       "redis>=5", "fakeredis>=2.20"]
 
 [project.scripts]
 guardrail-rag-jev = "guardrail_rag_jev.cli:main"

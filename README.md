@@ -47,6 +47,14 @@ piece of content:
   - or your own plugin.
 
   Fallback chains, shadow comparison and data-residency control are included.
+- **Streaming with retraction.** Answers are checked chunk by chunk while the model writes. A
+  violating chunk is stopped before it is shown, and what was shown is retracted if the complete
+  answer fails.
+- **Self-hosted classifiers:** SEA-Guard (Vietnamese), Granite Guardian and Llama Guard, combinable
+  in one policy (`routed`).
+- **Measure and calibrate:** a labelled Vietnamese dataset, and `eval` / `calibrate` commands that
+  set thresholds per model.
+- **Four-eyes review and SSO (OIDC), OpenTelemetry tracing, Redis job workers.**
 - **Review queue and audit log.** Reviewer decisions are remembered by content hash, and webhooks
   are signed. The audit log is a tamper-evident chain that does not store raw personal data by
   default.

@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 from urllib.parse import urlparse
 
 from .audit import AuditLog, MemoryAuditLog, content_hash, open_audit_log
@@ -33,12 +33,16 @@ from .config import Config, SurfaceEnforcement
 from .decide import decide, error_verdict, finding_for, merge_findings, now_ms
 from .detectors import DEFAULT_DETECTORS, DetectorSet, Match, defang_urls, mask_excerpt, redact
 from .i18n import Responder, detect_language
+from .jobs import JobBackend, build_jobs
 from .metrics import Metrics
+from .telemetry import Telemetry, clean
 from .policy import BUNDLED_PACKS, Policy
 from .providers import Provider, ProviderError, ShadowProvider, build_provider
 from .providers.base import Response
 from .questions import HAZARD, LOCATE_PREFIX, _EVALUATING, available_parts, build_questions, build_state, locate_questions
 from .review import ReviewStore
+if TYPE_CHECKING:  # pragma: no cover
+    from .streaming import AnswerStream
 from .types import (
     ContextResult,
     Decision,
@@ -95,6 +99,8 @@ class Guard:
         cache: VerdictCache | None = None,
         metrics: Metrics | None = None,
         profile: str = "default",
+        telemetry: Telemetry | None = None,
+        jobs: JobBackend | None = None,
     ) -> None:
         self.config = config or Config()
         self.profile = profile
@@ -112,13 +118,14 @@ class Guard:
             LRUCache(int(cache_cfg.get("capacity", 8192)), float(cache_cfg.get("ttl", 900))) if cache_cfg.get("enabled", True) else None
         )
         self.metrics = metrics or Metrics()
+        self.telemetry = telemetry or Telemetry(bool(self.config.telemetry.get("otel")))
         self._pool = ThreadPoolExecutor(max_workers=max(1, self.config.concurrency), thread_name_prefix="guard")
         self._locate_pool = ThreadPoolExecutor(max_workers=max(1, self.config.concurrency), thread_name_prefix="guard-locate")
-        self._jobs = ThreadPoolExecutor(max_workers=2, thread_name_prefix="guard-jobs")
         self._lock = threading.RLock()
         self._profiles: dict[str, Guard] = {}
         self._state = self._load_state()
         self._stacks = self._build_stacks(self._state)
+        self.jobs: JobBackend = jobs if jobs is not None else build_jobs(self)
 
     # -- construction -------------------------------------------------
 
@@ -141,7 +148,8 @@ class Guard:
             if name not in self._profiles:
                 self._profiles[name] = Guard(
                     self.config.for_profile(name), provider=self._override_provider, audit=self.audit,
-                    reviews=self.reviews, cache=self.cache, metrics=self.metrics, profile=name,
+                    reviews=self.reviews, cache=self.cache, metrics=self.metrics, profile=name, telemetry=self.telemetry,
+                    jobs=self.jobs,
                 )
             return self._profiles[name]
 
@@ -278,6 +286,22 @@ class Guard:
         return self._check("answer", answer, query=query, passages=passages, language=lang, metadata=metadata,
                            tenant=tenant, subset="sentinels" if partial else "full")
 
+    def answer_stream(
+        self,
+        *,
+        query: str | None = None,
+        context: Sequence[Mapping[str, Any] | str] | None = None,
+        language: str | None = None,
+        tenant: str | None = None,
+        chunk_chars: int = 200,
+        overlap_chars: int = 120,
+    ) -> "AnswerStream":
+        """Guard an answer while it is streamed: see ``guardrail_rag_jev.streaming``."""
+        from .streaming import AnswerStream
+
+        return AnswerStream(self, query=query, context=context, language=language, tenant=tenant,
+                            chunk_chars=chunk_chars, overlap_chars=overlap_chars)
+
     # -- policy at runtime ------------------------------------------------
 
     def update_policy(
@@ -329,6 +353,11 @@ class Guard:
 
     def decide_review(self, review_id: str, decision: str, *, reviewer: str, note: str = "", content: str | None = None) -> dict[str, Any]:
         item = self.reviews.decide(review_id, decision, reviewer=reviewer, note=note, content=content)
+        if item.get("status") == "pending":
+            self.audit.record("review.approval", review_id=review_id, check_id=item.get("check_id"), surface=item.get("surface"),
+                              decision=decision, actor=reviewer, note=note, required=item.get("required_approvals"),
+                              tenant=item.get("tenant") or "", profile=item.get("profile") or "")
+            return item
         self.audit.record(
             "review.decided", review_id=review_id, check_id=item.get("check_id"), surface=item.get("surface"),
             decision=item.get("status"), actor=reviewer, note=note, content_sha256=item.get("content_hash"),
@@ -340,40 +369,38 @@ class Guard:
 
     def submit_job(self, items: Sequence[Mapping[str, Any]], *, callback_url: str | None = None, tenant: str | None = None) -> str:
         """Check an ingest batch in the background. Poll ``job(id)`` or receive the callback."""
-        job_id = self.reviews.job_create(total=len(items), callback_url=callback_url, tenant=tenant or "", profile=self.profile)
+        job_id = self.jobs.submit(items, callback_url=callback_url, tenant=tenant or "", profile=self.profile)
         self.audit.record("job.created", job_id=job_id, items=len(items), tenant=tenant or "", profile=self.profile)
-        self._jobs.submit(self._run_job, job_id, [dict(i) for i in items], callback_url, tenant)
         return job_id
 
     def job(self, job_id: str, *, with_results: bool = True) -> dict[str, Any] | None:
-        return self.reviews.job_get(job_id, with_results=with_results)
-
-    def _run_job(self, job_id: str, items: list[dict[str, Any]], callback_url: str | None, tenant: str | None) -> None:
-        self.reviews.job_update(job_id, status="running")
-        try:
-            results: list[dict[str, Any]] = []
-            batch = max(1, self.config.concurrency * 4)
-            for start in range(0, len(items), batch):
-                for r in self.check_documents(items[start:start + batch], tenant=tenant):
-                    results.append(_compact(r))
-                self.reviews.job_update(job_id, done=len(results))
-            summary: dict[str, int] = {}
-            for r in results:
-                summary[r["decision"]] = summary.get(r["decision"], 0) + 1
-            self.reviews.job_update(job_id, status="done", summary=summary, results=results)
-            self.audit.record("job.done", job_id=job_id, summary=summary, tenant=tenant or "", profile=self.profile)
-            payload: dict[str, Any] = {"event": "job.done", "job_id": job_id, "summary": summary, "results": results}
-        except Exception as exc:  # noqa: BLE001 - a job failure is reported, not raised into a thread
-            log.exception("job %s failed", job_id)
-            self.reviews.job_update(job_id, status="failed", error=str(exc))
-            self.audit.record("job.failed", job_id=job_id, error=str(exc), tenant=tenant or "", profile=self.profile)
-            payload = {"event": "job.failed", "job_id": job_id, "error": str(exc)}
-        if callback_url:
-            self.reviews.notify(payload, callback_url)
+        return self.jobs.get(job_id, with_results=with_results)
 
     # -- the check --------------------------------------------------------
 
-    def _check(
+    def _check(self, surface: Surface, text: str, **kwargs: Any) -> Result:
+        with self.telemetry.span("guardrail.check", **{"guardrail.surface": surface, "guardrail.profile": self.profile}) as span:
+            result = self._check_inner(surface, text, **kwargs)
+            v = result.verdict
+            span.set_attributes(clean({
+                "guardrail.decision": result.decision,
+                "guardrail.would_decision": result.would_decision,
+                "guardrail.action": v.action,
+                "guardrail.route": v.route,
+                "guardrail.categories": [f.category for f in result.violations],
+                "guardrail.policy": v.policy_id,
+                "guardrail.provider": result.provider,
+                "guardrail.cached": v.cached,
+                "guardrail.degraded": v.degraded,
+                "guardrail.review_id": result.review_id,
+                "guardrail.override": result.override,
+                "guardrail.check_id": result.id,
+                "gen_ai.request.model": v.model or None,
+                "gen_ai.usage.input_tokens": v.usage.input_tokens or None,
+            }))
+            return result
+
+    def _check_inner(
         self,
         surface: Surface,
         text: str,
@@ -473,7 +500,10 @@ class Guard:
         started = now_ms()
         try:
             questions = build_questions(policy, surface, available=available, subset=subset)
-            response: Response = stack.provider.decide(state, questions, timeout=self.config.timeout)
+            with self.telemetry.span("guardrail.judge", **{"guardrail.provider": stack.name, "guardrail.questions": len(questions)}) as span:
+                response: Response = stack.provider.decide(state, questions, timeout=self.config.timeout)
+                span.set_attributes(clean({"gen_ai.request.model": response.model or None,
+                                           "gen_ai.usage.input_tokens": response.usage.input_tokens or None}))
             verdict = decide(policy, surface, response.answers, model=response.model, usage=response.usage,
                              latency_ms=now_ms() - started)
         except (ProviderError, KeyError, ValueError, TypeError) as exc:
@@ -578,8 +608,11 @@ class Guard:
         review_id = None
         if queue and subset == "full":
             stored = text if self.config.review.store_content == "full" else redact(text, matches)[0]
+            four_eyes = set(self.config.review.two_person)
+            needs_two = surface in four_eyes or any(f.category in four_eyes for f in verdict.findings if rank(f.action) >= rank("flag"))
             review_id = self.reviews.enqueue(
                 surface=surface, content=stored, content_hash=digest, decision=decision, reason=reason,
+                required_approvals=2 if needs_two else 1,
                 violations=[f.as_dict(lang) for f in verdict.findings if rank(f.action) >= rank("flag")],
                 verdict=verdict.as_dict(lang), ref=ref, language=lang, check_id=check_id, tenant=tenant, profile=self.profile,
             )
@@ -744,8 +777,11 @@ class Guard:
         tmp.replace(p)
 
     def close(self) -> None:
-        for pool in (self._pool, self._locate_pool, self._jobs):
+        for pool in (self._pool, self._locate_pool):
             pool.shutdown(wait=False, cancel_futures=True)
+        close = getattr(self.jobs, "close", None)
+        if callable(close):
+            close()
 
 
 # -- helpers ---------------------------------------------------------------
@@ -831,7 +867,7 @@ def residency_of(name: str, spec: Mapping[str, Any]) -> str:
     kind = spec.get("type", name)
     if kind == "offline":
         return "local"
-    if kind == "llm-judge":
+    if kind in ("llm-judge", "granite-guardian", "sea-guard", "classifier", "llama-guard"):
         host = urlparse(str(spec.get("base_url", "https://api.openai.com/v1"))).hostname or ""
         if host in ("localhost",) or "." not in host or host.endswith((".local", ".internal", ".svc", ".cluster.local")):
             return "local"
@@ -845,9 +881,16 @@ def residency_of(name: str, spec: Mapping[str, Any]) -> str:
 
 def _expand(name: str, specs: Mapping[str, Mapping[str, Any]], seen: tuple[str, ...] = ()) -> list[tuple[str, Mapping[str, Any]]]:
     spec = specs.get(name) or {}
-    if spec.get("type") == "fallback" and name not in seen:
+    if name in seen:
+        return []
+    members: list[str] = []
+    if spec.get("type") == "fallback":
+        members = list(spec.get("chain") or ())
+    elif spec.get("type") == "routed":
+        members = [str(r.get("provider")) for r in spec.get("routes") or ()] + [str(spec.get("default"))]
+    if members:
         out: list[tuple[str, Mapping[str, Any]]] = []
-        for member in spec.get("chain") or ():
+        for member in members:
             out += _expand(member, specs, (*seen, name))
         return out
     return [(name, spec)]

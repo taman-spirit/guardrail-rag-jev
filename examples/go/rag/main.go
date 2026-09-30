@@ -160,6 +160,43 @@ func main() {
 		fmt.Printf("   answer %s\n   -> %s\n\n", answer.Decision, strings.ReplaceAll(answer.TextForUser(), "\n", "\n      "))
 	}
 
+	// Streaming: show the answer as the model writes it, one checked chunk at a time.
+	fmt.Println("== streaming")
+	stream, err := guard.StartAnswerStream(ctx, guardrailrag.AnswerStreamRequest{Query: "Chính sách đổi trả?", ChunkChars: 60})
+	if err != nil {
+		log.Fatal(err)
+	}
+	draft := "Bạn được đổi trả trong 30 ngày. Sản phẩm cần còn nguyên tem nhãn. Tiền hoàn về tài khoản trong 5-7 ngày làm việc."
+	var events []guardrailrag.StreamEvent
+	runes := []rune(draft)                // split on characters, never inside a UTF-8 sequence
+	for i := 0; i < len(runes); i += 12 { // the model's tokens
+		end := i + 12
+		if end > len(runes) {
+			end = len(runes)
+		}
+		ev, err := stream.Feed(ctx, string(runes[i:end]))
+		if err != nil {
+			log.Fatal(err)
+		}
+		events = append(events, ev...)
+	}
+	last, err := stream.Finish(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, e := range append(events, last...) {
+		switch e.Type {
+		case "release":
+			fmt.Printf("   show:    %q\n", e.Text)
+		case "stop", "retract":
+			fmt.Printf("   %s: replace with %q\n", e.Type, e.Text)
+		case "notice":
+			fmt.Printf("   notice:  %q\n", e.Text)
+		case "done":
+			fmt.Printf("   done:    %s\n\n", e.Result.Decision)
+		}
+	}
+
 	// 5. The reviewer's side: what is waiting, and whether the audit chain is intact.
 	reviewer := guardrailrag.New(url, os.Getenv("GUARDRAIL_REVIEWER_KEY"))
 	if list, err := reviewer.Reviews(ctx, "pending", "", 20); err == nil {

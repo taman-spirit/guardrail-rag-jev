@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import hmac
 import logging
+import threading
+import time
+import uuid
 from importlib import resources
 from typing import Any, Literal
 
@@ -23,6 +26,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from . import __version__
+from .auth import AuthError, OidcConfig, OidcVerifier
 from .config import ApiKey, Config
 from .guard import Guard
 
@@ -85,6 +89,18 @@ class AnswerRequest(BaseModel):
     profile: str | None = None
 
 
+class StreamStart(BaseModel):
+    query: str | None = None
+    context: list[Chunk | str] | None = None
+    language: str | None = None
+    chunk_chars: int = Field(200, ge=40, le=4000)
+    profile: str | None = None
+
+
+class StreamChunk(BaseModel):
+    text: str
+
+
 class ReviewDecision(BaseModel):
     decision: Literal["approve", "reject", "edit"]
     note: str = ""
@@ -104,8 +120,9 @@ def create_app(config: Config | None = None, *, guard: Guard | None = None) -> F
     config = config or (guard.config if guard else Config.load())
     guard = guard or Guard(config)
     keys = list(config.server.api_keys)
-    if not keys:
-        log.warning("no server.api_keys configured: the service is open to anyone who can reach it")
+    sso = OidcVerifier(OidcConfig(**config.server.oidc)) if config.server.oidc else None
+    if not keys and sso is None:
+        log.warning("no server.api_keys or server.oidc configured: the service is open to anyone who can reach it")
 
     app = FastAPI(
         title="guardrail-rag-jev",
@@ -117,12 +134,20 @@ def create_app(config: Config | None = None, *, guard: Guard | None = None) -> F
 
     def caller(authorization: str | None = Header(None), x_guardrail_tenant: str | None = Header(None),
                x_guardrail_profile: str | None = Header(None)) -> dict[str, Any]:
-        if not keys:
+        if not keys and sso is None:
             return {"role": "admin", "name": "anonymous", "tenant": x_guardrail_tenant, "profile": x_guardrail_profile}
         token = (authorization or "").removeprefix("Bearer ").strip()
         match: ApiKey | None = next((k for k in keys if token and hmac.compare_digest(k.key, token)), None)
+        if match is None and sso is not None and token.count(".") == 2:
+            try:
+                user = sso.verify(token)
+            except AuthError as exc:
+                raise HTTPException(401, str(exc)) from exc
+            # A tenant in the token binds the caller to it, like a tenant-bound key.
+            return {"role": user["role"], "name": user["name"], "tenant": user["tenant"] or x_guardrail_tenant,
+                    "profile": x_guardrail_profile, "bound_tenant": user["tenant"]}
         if match is None:
-            raise HTTPException(401, "missing or unknown API key")
+            raise HTTPException(401, "missing or unknown API key or token")
         return {
             "role": match.role,
             "name": match.name or match.role,
@@ -208,6 +233,47 @@ def create_app(config: Config | None = None, *, guard: Guard | None = None) -> F
         ctx = [c if isinstance(c, str) else c.model_dump(exclude_none=True) for c in (body.context or [])]
         return g.check_answer(body.answer, query=body.query, context=ctx, language=body.language, partial=body.partial,
                               metadata=body.metadata, tenant=who["tenant"]).as_dict()
+
+    # -- streamed answers ---------------------------------------------------
+    # Sessions live in this process: route a stream's requests to one instance (sticky sessions).
+    streams: dict[str, tuple[float, Any, str | None]] = {}
+    streams_lock = threading.Lock()
+
+    def _stream(stream_id: str, who: dict[str, Any]):
+        with streams_lock:
+            now = time.monotonic()
+            for sid in [s for s, (t, _, _) in streams.items() if now - t > 600]:
+                streams.pop(sid, None)
+            found = streams.get(stream_id)
+        if found is None or (who.get("tenant") or None) != found[2]:
+            raise HTTPException(404, "no such stream (expired after 10 minutes, or on another instance)")
+        return found[1]
+
+    @app.post("/v1/answer/streams", status_code=201, tags=["checks"])
+    def stream_start(body: StreamStart, who=Depends(role("client"))) -> dict[str, Any]:
+        g = pick(who, body.profile)
+        ctx = [c if isinstance(c, str) else c.model_dump(exclude_none=True) for c in (body.context or [])]
+        stream = g.answer_stream(query=body.query, context=ctx, language=body.language, tenant=who["tenant"],
+                                 chunk_chars=body.chunk_chars)
+        stream_id = "st_" + uuid.uuid4().hex[:20]
+        with streams_lock:
+            streams[stream_id] = (time.monotonic(), stream, who.get("tenant") or None)
+        return {"stream_id": stream_id}
+
+    @app.post("/v1/answer/streams/{stream_id}/chunks", tags=["checks"])
+    def stream_chunk(stream_id: str, body: StreamChunk, who=Depends(role("client"))) -> dict[str, Any]:
+        stream = _stream(stream_id, who)
+        with streams_lock:
+            streams[stream_id] = (time.monotonic(), stream, streams[stream_id][2])
+        return {"events": [e.as_dict() for e in stream.feed(body.text)]}
+
+    @app.post("/v1/answer/streams/{stream_id}/finish", tags=["checks"])
+    def stream_finish(stream_id: str, who=Depends(role("client"))) -> dict[str, Any]:
+        stream = _stream(stream_id, who)
+        events = stream.finish()
+        with streams_lock:
+            streams.pop(stream_id, None)
+        return {"events": [e.as_dict() for e in events]}
 
     # -- review -------------------------------------------------------------
 
